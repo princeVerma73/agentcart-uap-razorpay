@@ -1,0 +1,24 @@
+# Secrets and environment-specific configuration
+.env
+.env.*
+!.env.example
+
+# Runtime state and caches
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.uv-cache/
+.mypy_cache/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

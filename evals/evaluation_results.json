@@ -1,0 +1,22 @@
+{
+  "methodology": "Synthetic, deterministic catalog evaluation; results are not live revenue.",
+  "baseline": {
+    "sessions": 500,
+    "purchases": 262,
+    "conversion_rate_percent": 52.4,
+    "average_order_value": 3413.31,
+    "revenue_per_session": 1788.57,
+    "revenue": 894287.0
+  },
+  "agentcart": {
+    "sessions": 500,
+    "purchases": 280,
+    "conversion_rate_percent": 56.0,
+    "average_order_value": 3737.24,
+    "revenue_per_session": 2092.85,
+    "revenue": 1046426.0,
+    "upsell_acceptance_rate_percent": 12.5,
+    "cross_sell_acceptance_rate_percent": 22.06,
+    "net_incremental_revenue": 152139.0
+  }
+}
