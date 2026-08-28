@@ -1,24 +1,36 @@
-# Secrets and environment-specific configuration
-.env
-.env.*
-!.env.example
-
-# Runtime state and caches
-*.db
-*.sqlite
-*.sqlite3
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .uv-cache/
-.mypy_cache/
+*.egg-info/
 
-# Frontend dependencies and build output
-frontend/node_modules/
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Databases / runtime data
+*.db
+*.sqlite
+*.sqlite3
+
+# Node
+node_modules/
 frontend/dist/
 
-# Editor and operating-system files
+# Logs
+*.log
+
+# IDE
 .vscode/
 .idea/
+
+# OS
 .DS_Store
 Thumbs.db
