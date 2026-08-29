@@ -325,22 +325,13 @@ class BuyerAgent:
             title="Order Proposal Formulated",
             thought=f"Formulated proposal for {len(selected_items)} item(s). Total calculated from DB: ₹{total_price:,.2f}.",
             action="policy_engine_submit",
-            status="IN_PROGRESS",
+            status="COMPLETED",
             data={"proposal": proposal.model_dump()}
         )
         await asyncio.sleep(0.3)
         step_idx += 1
 
         # Step 5: Deterministic Policy Engine Verification
-        yield AgentExecutionStep(
-            step_number=step_idx,
-            title="Deterministic Security & Policy Verification",
-            thought="Passing proposal to Policy Engine. Verifying price integrity against DB, enforcing budget limits, checking replay attack protection.",
-            action="verify_guardrails",
-            status="IN_PROGRESS"
-        )
-        await asyncio.sleep(0.3)
-
         verification = policy_engine.verify_order_proposal(session_id, proposal)
 
         if not verification.is_valid:
@@ -354,6 +345,15 @@ class BuyerAgent:
             )
             return
 
+        yield AgentExecutionStep(
+            step_number=step_idx,
+            title="Deterministic Security & Policy Verification",
+            thought=f"Proposal verified against DB limits and replay protection. Verified amount: ₹{verification.verified_total:,.2f}.",
+            action="verify_guardrails",
+            status="COMPLETED",
+            data={"verification": verification.model_dump()}
+        )
+        await asyncio.sleep(0.3)
         step_idx += 1
 
         # Step 6: Branching: HITL vs Autonomous Auto-Approve
@@ -379,7 +379,7 @@ class BuyerAgent:
             title="Autonomous Pre-Authorization Approved",
             thought=f"Order (₹{verification.verified_total:,.2f}) is within autonomous pre-auth limit. Calling Razorpay Orders API.",
             action="razorpay_order_create",
-            status="IN_PROGRESS"
+            status="COMPLETED"
         )
         await asyncio.sleep(0.4)
 

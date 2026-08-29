@@ -167,7 +167,22 @@ class GrowthEngine:
                      "base_product_id": base_product.id, "price": product.price, "quantity": quantity,
                      "incremental_revenue": incremental_revenue},
         )
-        return {"status": "SUCCESS", "message": entry.summary, "product": product.model_dump(), "audit_entry": entry.model_dump()}
+        resp = {
+            "status": "SUCCESS",
+            "message": entry.summary,
+            "product": product.model_dump(),
+            "audit_entry": entry.model_dump(),
+            "action": "accepted" if accepted else "declined"
+        }
+        if accepted:
+            resp.update({
+                "items": [item.model_dump() for item in items],
+                "total_amount": total,
+                "verification": policy_result.model_dump(),
+                "proposal": OrderProposal(merchant_id="merchant_rzp_tech_01", items=items, total_amount=total, user_goal=f"Accepted {offer_type} offer").model_dump(),
+                "hitl_token": policy_result.hitl_token if policy_result.status == "HITL_REQUIRED" else None
+            })
+        return resp
 
     def calculate_metrics(self) -> Dict[str, Any]:
         """Calculate growth metrics from ledger events rather than in-memory counters."""
