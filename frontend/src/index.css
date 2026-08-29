@@ -3,26 +3,61 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
   body {
-    @apply bg-[#070c18] text-slate-100;
+    @apply bg-[#f8fafc] text-slate-900 font-sans antialiased selection:bg-blue-100 selection:text-blue-900;
   }
 }
 
-/* Custom scrollbars */
+/* Subtle, Understated Editorial Reveal Animations */
+@keyframes subtleReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-hero-line-1 {
+  animation: subtleReveal 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.05s forwards;
+  opacity: 0;
+}
+
+.animate-hero-line-2 {
+  animation: subtleReveal 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.18s forwards;
+  opacity: 0;
+}
+
+.animate-hero-desc {
+  animation: subtleReveal 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.30s forwards;
+  opacity: 0;
+}
+
+.animate-hero-trust {
+  animation: subtleReveal 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.42s forwards;
+  opacity: 0;
+}
+
+/* Clean Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0d1527;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e2f4d;
-  border-radius: 3px;
+  background: #cbd5e1;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3395ff;
+  background: #94a3b8;
 }
