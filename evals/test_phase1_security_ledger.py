@@ -12,7 +12,7 @@ from main import app
 from config import settings
 from audit.ledger import AuditLedger, audit_ledger
 from audit.models import AuditLogEntry
-from security.policy_engine import PolicyEngine, PolicyConfig, PersistentIdempotencySet
+from security.policy_engine import policy_engine, PolicyEngine, PolicyConfig, PersistentIdempotencySet
 from merchant.models import OrderProposal, CartItem
 from merchant.catalog import catalog_db
 
@@ -20,7 +20,7 @@ from merchant.catalog import catalog_db
 def reset_system_state():
     catalog_db.reset_catalog()
     audit_ledger.clear()
-    policy_engine = PolicyEngine(PolicyConfig(
+    policy_engine.update_config(PolicyConfig(
         max_single_transaction_limit=10000.0,
         auto_approve_limit=3000.0,
         require_human_approval_always=False,
@@ -179,17 +179,31 @@ def test_hitl_validation():
         "total_amount": 6499.0,
         "user_goal": "Buy mechanical keyboard"
     }
+    proposal_obj = OrderProposal(**proposal_dict)
+    verification = policy_engine.verify_order_proposal(session_id, proposal_obj)
+    valid_token = verification.hitl_token
 
-    # 1. Attempt approval with fake / tampered total amount -> REJECTED
+    # 1. Attempt approval with missing token -> REJECTED
+    res_no_token = client.post("/api/agent/approve-hitl", json={
+        "session_id": session_id,
+        "proposal": proposal_dict,
+        "verified_total": 6499.0,
+        "hitl_token": ""
+    })
+    assert res_no_token.status_code == 403
+    assert "missing" in res_no_token.json()["detail"].lower()
+
+    # 2. Attempt approval with fake / tampered total amount -> REJECTED
     res_fake_total = client.post("/api/agent/approve-hitl", json={
         "session_id": session_id,
         "proposal": proposal_dict,
-        "verified_total": 1.0
+        "verified_total": 1.0,
+        "hitl_token": valid_token
     })
     assert res_fake_total.status_code == 400
     assert "mismatch" in res_fake_total.json()["detail"].lower()
 
-    # 2. Attempt approval with invalid token -> REJECTED
+    # 3. Attempt approval with invalid token -> REJECTED
     res_fake_token = client.post("/api/agent/approve-hitl", json={
         "session_id": session_id,
         "proposal": proposal_dict,
@@ -197,14 +211,58 @@ def test_hitl_validation():
         "hitl_token": "fake_invalid_token_123"
     })
     assert res_fake_token.status_code == 403
-    assert "invalid hitl" in res_fake_token.json()["detail"].lower()
+    assert "invalid" in res_fake_token.json()["detail"].lower()
 
-    # 3. Valid sign-off with accurate verified total -> SUCCESS
+    # 4. Valid sign-off with accurate verified total and token -> SUCCESS
     res_valid = client.post("/api/agent/approve-hitl", json={
         "session_id": session_id,
         "proposal": proposal_dict,
-        "verified_total": 6499.0
+        "verified_total": 6499.0,
+        "hitl_token": valid_token
     })
     assert res_valid.status_code == 200
     assert res_valid.json()["status"] == "SUCCESS"
     assert res_valid.json()["order"]["id"].startswith("order_")
+
+
+def test_detection_of_deleted_audit_records():
+    """Test 9: Verify that deleting an intermediate record breaks the cryptographic chain."""
+    db_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db").name
+    try:
+        ledger = AuditLedger(db_path=db_file)
+        e1 = ledger.record("sess_del", "START", "SUCCESS", "Step 1", {})
+        e2 = ledger.record("sess_del", "PROCESS", "SUCCESS", "Step 2", {})
+        e3 = ledger.record("sess_del", "FINISH", "SUCCESS", "Step 3", {})
+
+        is_valid, _, _ = ledger.verify_chain_integrity()
+        assert is_valid is True
+
+        # Delete the middle record (e2) from memory cache
+        ledger._memory_cache.remove(e2)
+
+        is_valid_after_del, failed_id, msg = ledger.verify_chain_integrity()
+        assert is_valid_after_del is False
+        assert failed_id == e3.id
+        assert "Broken chain" in msg or "previous_hash" in msg
+    finally:
+        if os.path.exists(db_file):
+            os.remove(db_file)
+
+
+def test_detection_of_chain_break():
+    """Test 10: Verify that inserting a fabricated record with forged hash breaks validation."""
+    db_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db").name
+    try:
+        ledger = AuditLedger(db_path=db_file)
+        ledger.record("sess_forgery", "INTAKE", "SUCCESS", "Legit 1", {})
+        ledger.record("sess_forgery", "POLICY", "SUCCESS", "Legit 2", {})
+
+        # Forge previous hash of second record
+        ledger._memory_cache[1].previous_hash = "forged_previous_hash_value"
+        is_valid, failed_id, msg = ledger.verify_chain_integrity()
+        assert is_valid is False
+        assert failed_id == ledger._memory_cache[1].id
+    finally:
+        if os.path.exists(db_file):
+            os.remove(db_file)
+

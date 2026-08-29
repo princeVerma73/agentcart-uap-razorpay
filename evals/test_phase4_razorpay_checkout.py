@@ -49,6 +49,8 @@ def test_mode_checkout_state():
     razorpay_service.mock_mode, razorpay_service.client, razorpay_service.key_id, razorpay_service.key_secret = original
 
 
+from merchant.models import OrderProposal
+
 def test_hitl_creates_public_checkout_and_verifies_signature():
     client = TestClient(app)
     session_id = "sess_phase4_checkout"
@@ -58,11 +60,15 @@ def test_hitl_creates_public_checkout_and_verifies_signature():
         "total_amount": 6499.0,
         "user_goal": "Buy mechanical keyboard",
     }
+    proposal_obj = OrderProposal(**proposal)
+    verification = policy_engine.verify_order_proposal(session_id, proposal_obj)
+    token = verification.hitl_token
 
     order_response = client.post("/api/agent/approve-hitl", json={
         "session_id": session_id,
         "proposal": proposal,
         "verified_total": 6499.0,
+        "hitl_token": token,
     })
 
     assert order_response.status_code == 200

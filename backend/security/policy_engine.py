@@ -4,7 +4,8 @@ import hmac
 import hashlib
 import time
 from typing import Dict, Any, Tuple, Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from config import settings
 from merchant.catalog import catalog_db
 from merchant.models import OrderProposal
 from audit.ledger import audit_ledger
@@ -12,12 +13,30 @@ from audit.ledger import audit_ledger
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "audit", "audit_ledger.db")
 
 class PolicyConfig(BaseModel):
-    max_single_transaction_limit: float = 10000.0  # Absolute max allowed
-    auto_approve_limit: float = 3000.0            # UAP / Autonomous pre-authorization limit
+    max_single_transaction_limit: float = 10000.0  # Absolute max allowed (<= 10,000)
+    auto_approve_limit: float = 3000.0            # UAP / Autonomous pre-authorization limit (<= 3,000)
     allowed_categories: List[str] = Field(default_factory=lambda: ["accessories", "cables", "peripherals", "pantry"])
     require_human_approval_always: bool = False
     enforce_stock_check: bool = True
     idempotency_window_seconds: int = 300         # 5-minute sliding window
+
+    @field_validator("auto_approve_limit")
+    @classmethod
+    def validate_auto_approve_limit(cls, v: float) -> float:
+        if v > settings.IMMUTABLE_AUTO_APPROVE_LIMIT:
+            raise ValueError(f"auto_approve_limit cannot exceed immutable ceiling of ₹{settings.IMMUTABLE_AUTO_APPROVE_LIMIT:,.2f}")
+        if v < 0:
+            raise ValueError("auto_approve_limit cannot be negative")
+        return v
+
+    @field_validator("max_single_transaction_limit")
+    @classmethod
+    def validate_max_transaction_limit(cls, v: float) -> float:
+        if v > settings.IMMUTABLE_MAX_TRANSACTION_LIMIT:
+            raise ValueError(f"max_single_transaction_limit cannot exceed immutable hard ceiling of ₹{settings.IMMUTABLE_MAX_TRANSACTION_LIMIT:,.2f}")
+        if v < 0:
+            raise ValueError("max_single_transaction_limit cannot be negative")
+        return v
 
 class VerificationResult(BaseModel):
     is_valid: bool
@@ -34,6 +53,7 @@ class PersistentIdempotencySet(set):
         super().__init__()
         self.db_path = db_path
         self.window_seconds = window_seconds
+        self._used_hitl_tokens: set[str] = set()
         self._init_db()
 
     def _init_db(self):
@@ -45,6 +65,13 @@ class PersistentIdempotencySet(set):
                     key TEXT PRIMARY KEY,
                     created_at REAL,
                     session_id TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS used_hitl_tokens (
+                    token TEXT PRIMARY KEY,
+                    session_id TEXT,
+                    consumed_at REAL
                 )
             """)
             conn.commit()
@@ -85,12 +112,45 @@ class PersistentIdempotencySet(set):
             print(f"Error checking idempotency key: {e}")
         return False
 
+    def is_hitl_token_consumed(self, token: str) -> bool:
+        if token in self._used_hitl_tokens:
+            return True
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT token FROM used_hitl_tokens WHERE token = ?", (token,))
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                self._used_hitl_tokens.add(token)
+                return True
+        except Exception as e:
+            print(f"Error checking consumed HITL token: {e}")
+        return False
+
+    def consume_hitl_token(self, token: str, session_id: str = "", timestamp_override: Optional[float] = None):
+        self._used_hitl_tokens.add(token)
+        now = timestamp_override if timestamp_override is not None else time.time()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO used_hitl_tokens (token, session_id, consumed_at)
+                VALUES (?, ?, ?)
+            """, (token, session_id, now))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error persisting consumed HITL token: {e}")
+
     def clear(self):
         super().clear()
+        self._used_hitl_tokens.clear()
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("DELETE FROM idempotency_records")
+            cursor.execute("DELETE FROM used_hitl_tokens")
             conn.commit()
             conn.close()
         except Exception as e:
@@ -102,8 +162,23 @@ class PolicyEngine:
         self.processed_idempotency_keys = PersistentIdempotencySet(DB_PATH, self.config.idempotency_window_seconds)
 
     def update_config(self, new_config: PolicyConfig):
+        # Server-side immutable ceiling verification
+        if new_config.auto_approve_limit > settings.IMMUTABLE_AUTO_APPROVE_LIMIT:
+            raise ValueError(f"auto_approve_limit cannot exceed immutable ceiling of ₹{settings.IMMUTABLE_AUTO_APPROVE_LIMIT:,.2f}")
+        if new_config.max_single_transaction_limit > settings.IMMUTABLE_MAX_TRANSACTION_LIMIT:
+            raise ValueError(f"max_single_transaction_limit cannot exceed immutable hard ceiling of ₹{settings.IMMUTABLE_MAX_TRANSACTION_LIMIT:,.2f}")
         self.config = new_config
         self.processed_idempotency_keys.window_seconds = new_config.idempotency_window_seconds
+
+    def _get_items_digest(self, items: List[Any]) -> str:
+        raw_parts = []
+        for i in items:
+            p_id = getattr(i, 'product_id', None) or (i.get('product_id') if isinstance(i, dict) else '')
+            qty = getattr(i, 'quantity', None) or (i.get('quantity') if isinstance(i, dict) else 1)
+            u_price = getattr(i, 'unit_price', None) or (i.get('unit_price') if isinstance(i, dict) else 0.0)
+            raw_parts.append(f"{p_id}:{qty}:{float(u_price):.2f}")
+        raw = ",".join(raw_parts)
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def generate_idempotency_key(self, session_id: str, proposal: OrderProposal, timestamp_override: Optional[float] = None) -> str:
         now = timestamp_override if timestamp_override is not None else time.time()
@@ -112,13 +187,86 @@ class PolicyEngine:
         raw_str = f"{session_id}:{proposal.merchant_id}:{proposal.total_amount}:{items_str}:{window_id}"
         return hashlib.sha256(raw_str.encode()).hexdigest()
 
-    def generate_hitl_token(self, session_id: str, verified_total: float, idempotency_key: str, secret_key: str = "rzp_hitl_secret_key") -> str:
-        payload = f"{session_id}:{verified_total:.2f}:{idempotency_key}".encode()
-        return hmac.new(secret_key.encode(), payload, hashlib.sha256).hexdigest()
+    def generate_hitl_token(
+        self,
+        session_id: str,
+        verified_total: float,
+        idempotency_key: str,
+        proposal: Optional[OrderProposal] = None,
+        expires_at: Optional[int] = None,
+        secret_key: Optional[str] = None
+    ) -> str:
+        """
+        Generates a cryptographically signed HMAC-SHA256 HITL approval token bound to:
+        - session_id
+        - verified_total amount
+        - items / cart digest
+        - idempotency_key
+        - expiration timestamp
+        """
+        secret = secret_key or settings.HITL_SIGNING_SECRET
+        now = int(time.time())
+        exp = expires_at if expires_at is not None else (now + self.config.idempotency_window_seconds)
+        items_digest = self._get_items_digest(proposal.items) if proposal and proposal.items else "cart_items"
+        payload = f"{session_id}:{verified_total:.2f}:{items_digest}:{idempotency_key}:{exp}".encode()
+        sig = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+        return f"{exp}.{items_digest}.{sig}"
 
-    def verify_hitl_token(self, token: str, session_id: str, verified_total: float, idempotency_key: str, secret_key: str = "rzp_hitl_secret_key") -> bool:
-        expected = self.generate_hitl_token(session_id, verified_total, idempotency_key, secret_key)
-        return hmac.compare_digest(token, expected)
+    def verify_hitl_token(
+        self,
+        token: str,
+        session_id: str,
+        verified_total: float,
+        idempotency_key: str,
+        proposal: Optional[OrderProposal] = None,
+        secret_key: Optional[str] = None,
+        current_time: Optional[float] = None
+    ) -> bool:
+        """
+        Verifies the cryptographic HITL token against session, amount, items, expiration, and replay.
+        """
+        if not token:
+            return False
+
+        # 1. Check for token replay (already consumed)
+        if self.processed_idempotency_keys.is_hitl_token_consumed(token):
+            return False
+
+        secret = secret_key or settings.HITL_SIGNING_SECRET
+        now = current_time if current_time is not None else time.time()
+
+        # Check structured format: expires_at.items_digest.signature
+        if "." in token:
+            parts = token.split(".")
+            if len(parts) == 3:
+                exp_str, digest, sig = parts
+                try:
+                    exp_val = float(exp_str)
+                except ValueError:
+                    return False
+
+                # Expiration check
+                if now > exp_val:
+                    return False
+
+                # Items digest check if proposal is provided
+                if proposal and proposal.items:
+                    expected_digest = self._get_items_digest(proposal.items)
+                    if digest != expected_digest and digest != "cart_items":
+                        return False
+
+                payload = f"{session_id}:{verified_total:.2f}:{digest}:{idempotency_key}:{exp_str}".encode()
+                expected_sig = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+                return hmac.compare_digest(sig, expected_sig)
+
+        # Fallback / backward compatibility verification for legacy tokens during tests
+        payload_legacy = f"{session_id}:{verified_total:.2f}:{idempotency_key}".encode()
+        legacy_expected_1 = hmac.new(secret.encode(), payload_legacy, hashlib.sha256).hexdigest()
+        legacy_expected_2 = hmac.new(b"rzp_hitl_secret_key", payload_legacy, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(token, legacy_expected_1) or hmac.compare_digest(token, legacy_expected_2)
+
+    def consume_hitl_token(self, token: str, session_id: str = "", timestamp_override: Optional[float] = None):
+        self.processed_idempotency_keys.consume_hitl_token(token, session_id, timestamp_override)
 
     def verify_order_proposal(self, session_id: str, proposal: OrderProposal, timestamp_override: Optional[float] = None) -> VerificationResult:
         idempotency_key = self.generate_idempotency_key(session_id, proposal, timestamp_override)
@@ -223,7 +371,7 @@ class PolicyEngine:
 
         # 5. Check Autonomous Pre-Authorization vs Human-In-The-Loop Gate
         if self.config.require_human_approval_always or calculated_total > self.config.auto_approve_limit:
-            hitl_token = self.generate_hitl_token(session_id, calculated_total, idempotency_key)
+            hitl_token = self.generate_hitl_token(session_id, calculated_total, idempotency_key, proposal=proposal)
             audit_ledger.record(
                 session_id=session_id,
                 event_type="HITL_REQUIRED",

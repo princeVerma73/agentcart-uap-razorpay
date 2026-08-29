@@ -50,16 +50,24 @@ def lifecycle_state():
     razorpay_service.mock_mode, razorpay_service.client, razorpay_service.key_id, razorpay_service.key_secret = original
 
 
+from merchant.models import OrderProposal
+
 def checkout_order(client, session_id="sess_lifecycle"):
+    proposal_dict = {
+        "merchant_id": "merchant_rzp_tech_01",
+        "items": [{"product_id": "prod_mech_keyboard_k2", "quantity": 1, "unit_price": 6499.0, "name": "Mechanical Keyboard"}],
+        "total_amount": 6499.0,
+        "user_goal": "Buy mechanical keyboard",
+    }
+    proposal_obj = OrderProposal(**proposal_dict)
+    verification = policy_engine.verify_order_proposal(session_id, proposal_obj)
+    token = verification.hitl_token
+
     response = client.post("/api/agent/approve-hitl", json={
         "session_id": session_id,
-        "proposal": {
-            "merchant_id": "merchant_rzp_tech_01",
-            "items": [{"product_id": "prod_mech_keyboard_k2", "quantity": 1, "unit_price": 6499.0, "name": "Mechanical Keyboard"}],
-            "total_amount": 6499.0,
-            "user_goal": "Buy mechanical keyboard",
-        },
+        "proposal": proposal_dict,
         "verified_total": 6499.0,
+        "hitl_token": token,
     })
     assert response.status_code == 200
     return response.json()

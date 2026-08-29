@@ -1,22 +1,40 @@
 {
-  "methodology": "Synthetic, deterministic catalog evaluation; results are not live revenue.",
+  "methodology": "Synthetic, deterministic catalog evaluation with shared buyer propensities; results are not live revenue.",
+  "statistical_design": {
+    "shared_propensity_enforced": true,
+    "confidence_level": "95%",
+    "deterministic_seed_generator": "SHA-256 session hashing"
+  },
   "baseline": {
     "sessions": 500,
-    "purchases": 262,
-    "conversion_rate_percent": 52.4,
-    "average_order_value": 3413.31,
-    "revenue_per_session": 1788.57,
-    "revenue": 894287.0
+    "purchases": 260,
+    "conversion_rate_percent": 52.0,
+    "conversion_rate_ci_95": 4.38,
+    "average_order_value": 3737.49,
+    "average_order_value_ci_95": 367.89,
+    "revenue_per_session": 1943.49,
+    "revenue": 971747.0
   },
   "agentcart": {
     "sessions": 500,
-    "purchases": 280,
-    "conversion_rate_percent": 56.0,
-    "average_order_value": 3737.24,
-    "revenue_per_session": 2092.85,
-    "revenue": 1046426.0,
-    "upsell_acceptance_rate_percent": 12.5,
-    "cross_sell_acceptance_rate_percent": 22.06,
-    "net_incremental_revenue": 152139.0
+    "purchases": 260,
+    "conversion_rate_percent": 52.0,
+    "conversion_rate_ci_95": 4.38,
+    "average_order_value": 3801.31,
+    "average_order_value_ci_95": 370.39,
+    "revenue_per_session": 1976.68,
+    "revenue": 988340.0,
+    "upsell_acceptance_rate_percent": 22.22,
+    "cross_sell_acceptance_rate_percent": 11.48,
+    "net_incremental_revenue": 16593.0,
+    "aov_lift": 63.82,
+    "aov_lift_percent": 1.71,
+    "rps_lift": 33.19,
+    "rps_lift_percent": 1.71,
+    "attribution": {
+      "base_product_revenue": 971747.0,
+      "upsell_incremental_revenue": 8000.0,
+      "cross_sell_incremental_revenue": 8593.0
+    }
   }
 }

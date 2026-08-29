@@ -136,6 +136,7 @@ export default function App() {
     sessionId: string;
     proposal: any;
     verifiedTotal: number;
+    hitlToken: string;
   } | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -297,7 +298,8 @@ export default function App() {
                 setPendingHitl({
                   sessionId: newSessionId,
                   proposal: step.data.proposal,
-                  verifiedTotal: step.data.verification.verified_total
+                  verifiedTotal: step.data.verification.verified_total,
+                  hitlToken: step.data.hitl_token || step.data.verification.hitl_token || ""
                 });
                 setIsRunning(false);
               }
@@ -390,7 +392,8 @@ export default function App() {
         body: JSON.stringify({
           session_id: pendingHitl.sessionId,
           proposal: pendingHitl.proposal,
-          verified_total: pendingHitl.verifiedTotal
+          verified_total: pendingHitl.verifiedTotal,
+          hitl_token: pendingHitl.hitlToken
         })
       });
       const data = await res.json();
@@ -897,16 +900,24 @@ export default function App() {
             {merchantAnalytics && (
               <div className="grid grid-cols-2 gap-2 text-xs mt-2 pt-2 border-t border-slate-800">
                 <div className="bg-[#080d1a] p-2 rounded border border-slate-800">
-                  <div className="text-[10px] text-slate-400">Live GMV</div>
-                  <div className="font-bold text-emerald-400 text-sm">â‚¹{merchantAnalytics.gmv.toLocaleString('en-IN')}</div>
+                  <div className="text-[10px] text-slate-400">Total Settled GMV</div>
+                  <div className="font-bold text-emerald-400 text-sm">₹{merchantAnalytics.gmv.toLocaleString('en-IN')}</div>
                 </div>
                 <div className="bg-[#080d1a] p-2 rounded border border-slate-800">
-                  <div className="text-[10px] text-slate-400">AOV / HITL Ratio</div>
-                  <div className="font-bold text-slate-200 text-sm">â‚¹{merchantAnalytics.average_order_value.toLocaleString('en-IN')} / {merchantAnalytics.hitl_gate_ratio}%</div>
+                  <div className="text-[10px] text-slate-400">Incremental Revenue</div>
+                  <div className="font-bold text-amber-400 text-sm">₹{merchantAnalytics.incremental_revenue.toLocaleString('en-IN')}</div>
                 </div>
-                <div className="bg-[#080d1a] p-2 rounded border border-slate-800 col-span-2">
-                  <div className="text-[10px] text-slate-400">Recommendation Revenue Lift / Recoveries</div>
-                  <div className="font-bold text-amber-400 text-sm">â‚¹{merchantAnalytics.incremental_revenue.toLocaleString('en-IN')} / {merchantAnalytics.failure_recoveries}</div>
+                <div className="bg-[#080d1a] p-2 rounded border border-slate-800">
+                  <div className="text-[10px] text-slate-400">AOV / Settled Orders</div>
+                  <div className="font-bold text-slate-200 text-sm">₹{merchantAnalytics.average_order_value.toLocaleString('en-IN')} ({merchantAnalytics.purchases || 0})</div>
+                </div>
+                <div className="bg-[#080d1a] p-2 rounded border border-slate-800">
+                  <div className="text-[10px] text-slate-400">HITL Gate Ratio</div>
+                  <div className="font-bold text-blue-400 text-sm">{merchantAnalytics.hitl_gate_ratio}%</div>
+                </div>
+                <div className="bg-[#080d1a] p-2 rounded border border-slate-800 col-span-2 flex justify-between items-center">
+                  <span className="text-[10px] text-slate-400">Stockout Auto-Recoveries:</span>
+                  <span className="font-bold text-emerald-400 text-xs px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">{merchantAnalytics.failure_recoveries} Recovered</span>
                 </div>
               </div>
             )}
@@ -931,7 +942,7 @@ export default function App() {
                 <input
                   type="range"
                   min={500}
-                  max={6000}
+                  max={3000}
                   step={500}
                   value={policy.auto_approve_limit}
                   onChange={(e) => updatePolicyConfig({ ...policy, auto_approve_limit: Number(e.target.value) })}
@@ -946,9 +957,9 @@ export default function App() {
                 </div>
                 <input
                   type="range"
-                  min={5000}
-                  max={25000}
-                  step={1000}
+                  min={3000}
+                  max={10000}
+                  step={500}
                   value={policy.max_single_transaction_limit}
                   onChange={(e) => updatePolicyConfig({ ...policy, max_single_transaction_limit: Number(e.target.value) })}
                   className="w-full accent-emerald-500 cursor-pointer"

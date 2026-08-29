@@ -42,7 +42,7 @@ class ApproveHitlRequest(BaseModel):
     session_id: str
     proposal: Dict[str, Any]
     verified_total: float
-    hitl_token: Optional[str] = None
+    hitl_token: str
 
 
 class PriceSurgeRequest(BaseModel):
@@ -70,6 +70,13 @@ class CheckoutFailureRequest(BaseModel):
     razorpay_order_id: str
     reason: Literal["cancelled", "failed"]
 
+def require_demo_mode():
+    if not settings.AGENTCART_DEMO_MODE:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo simulation and destructive endpoints are disabled in production mode (AGENTCART_DEMO_MODE=false)."
+        )
+
 @app.get("/health")
 def health_check():
     return {
@@ -77,6 +84,7 @@ def health_check():
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
         "mock_mode": razorpay_service.mock_mode,
+        "demo_mode": settings.AGENTCART_DEMO_MODE,
         "items_in_catalog": len(catalog_db.list_all())
     }
 
@@ -95,16 +103,19 @@ def search_catalog(query: CatalogQuery):
 
 @app.post("/api/catalog/simulate-price-surge")
 def simulate_price_surge(req: PriceSurgeRequest):
+    require_demo_mode()
     catalog_db.simulate_price_surge(req.product_id, req.new_price)
     return {"status": "success", "message": f"Updated price of {req.product_id} to ₹{req.new_price}"}
 
 @app.post("/api/catalog/simulate-stockout")
 def simulate_stockout(req: StockDepleteRequest):
+    require_demo_mode()
     catalog_db.simulate_stock_depletion(req.product_id)
     return {"status": "success", "message": f"Depleted stock for {req.product_id}"}
 
 @app.post("/api/catalog/reset")
 def reset_catalog():
+    require_demo_mode()
     catalog_db.reset_catalog()
     return {"status": "success", "message": "Catalog reset to default state"}
 
@@ -116,7 +127,10 @@ def get_policy():
 
 @app.post("/api/policy")
 def update_policy(config: PolicyConfig):
-    policy_engine.update_config(config)
+    try:
+        policy_engine.update_config(config)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"status": "success", "config": policy_engine.config.model_dump()}
 
 # ----------------- Agent Streaming & Execution Endpoints ----------------- #
@@ -178,16 +192,36 @@ def approve_hitl(req: ApproveHitlRequest):
             detail=f"Claimed amount mismatch: server verified total is ₹{verification.verified_total:,.2f}, provided ₹{req.verified_total:,.2f}"
         )
 
-    # 3. Verify HITL HMAC Token if present or generated
-    if req.hitl_token:
-        is_valid_token = policy_engine.verify_hitl_token(
-            token=req.hitl_token,
+    # 3. Verify HITL HMAC Token (mandatory, cryptographically bound, unexpired, un-replayed)
+    if not req.hitl_token:
+        audit_ledger.record(
             session_id=session_id,
-            verified_total=verification.verified_total,
-            idempotency_key=verification.idempotency_key
+            event_type="HITL_REJECTED",
+            status="REJECTED",
+            summary="HITL approval rejected: Missing cryptographic sign-off token.",
+            details={"session_id": session_id, "reason": "missing_token"}
         )
-        if not is_valid_token:
-            raise HTTPException(status_code=403, detail="Invalid HITL cryptographic sign-off token.")
+        raise HTTPException(status_code=403, detail="Missing HITL cryptographic sign-off token.")
+
+    is_valid_token = policy_engine.verify_hitl_token(
+        token=req.hitl_token,
+        session_id=session_id,
+        verified_total=verification.verified_total,
+        idempotency_key=verification.idempotency_key,
+        proposal=proposal_obj
+    )
+    if not is_valid_token:
+        audit_ledger.record(
+            session_id=session_id,
+            event_type="HITL_REJECTED",
+            status="REJECTED",
+            summary="HITL approval rejected: Invalid, expired, session-mismatched, or replayed sign-off token.",
+            details={"session_id": session_id, "amount": verification.verified_total, "hitl_token": req.hitl_token}
+        )
+        raise HTTPException(status_code=403, detail="Invalid, expired, or replayed HITL cryptographic sign-off token.")
+
+    # Consume token immediately (single-use replay protection)
+    policy_engine.consume_hitl_token(req.hitl_token, session_id=session_id)
 
     amount = verification.verified_total
     
@@ -299,6 +333,7 @@ def get_audit_logs(session_id: Optional[str] = None):
 
 @app.post("/api/audit-logs/clear")
 def clear_audit_logs():
+    require_demo_mode()
     audit_ledger.clear()
     return {"status": "success", "message": "Audit ledger cleared"}
 

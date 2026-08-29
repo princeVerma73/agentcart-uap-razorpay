@@ -18,9 +18,17 @@ class Settings(BaseModel):
     # Gemini / LLM API Key (optional - built-in autonomous heuristic engine fallback provided)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     
-    # Financial Guardrails Default Limits (in INR)
-    DEFAULT_MAX_TRANSACTION_LIMIT: float = 10000.0  # Hard ceiling
-    DEFAULT_AUTO_APPROVE_LIMIT: float = 3000.0      # Auto-approve threshold (UAP style)
+    # Cryptographic HITL Signing Secret
+    HITL_SIGNING_SECRET: str = os.getenv("HITL_SIGNING_SECRET", "agentcart_default_hitl_secret_key_change_in_prod")
+
+    # Demo Mode flag: When False, destructive simulation and unconstrained mutations are disabled
+    AGENTCART_DEMO_MODE: bool = os.getenv("AGENTCART_DEMO_MODE", "true").lower() == "true"
+
+    # Financial Guardrails Canonical Limits (in INR)
+    DEFAULT_MAX_TRANSACTION_LIMIT: float = 10000.0  # Hard ceiling (<= 10,000)
+    DEFAULT_AUTO_APPROVE_LIMIT: float = 3000.0      # Auto-approve threshold (<= 3,000)
+    IMMUTABLE_MAX_TRANSACTION_LIMIT: float = 10000.0
+    IMMUTABLE_AUTO_APPROVE_LIMIT: float = 3000.0
 
     # CORS Origins (Comma-separated string or list)
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173")
