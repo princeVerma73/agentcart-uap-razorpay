@@ -271,7 +271,8 @@ def approve_hitl(req: ApproveHitlRequest):
         "status": "SUCCESS",
         "message": f"Transaction approved by user and executed on Razorpay.",
         "order": rzp_order,
-        "settlement": settlement
+        "settlement": settlement,
+        "verified_total": amount
     }
 
 

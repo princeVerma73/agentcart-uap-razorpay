@@ -621,13 +621,16 @@ export default function App() {
             if (!verificationResponse.ok) throw new Error(verification.detail || 'Payment verification failed.');
 
             paymentCompleted = true;
+            const verifiedAmt = typeof order?.amount === 'number'
+              ? (order.amount >= 100 ? order.amount / 100 : order.amount)
+              : undefined;
             setSteps(prev => [...prev, {
               step_number: prev.length + 1,
               title: 'Razorpay Payment Verified',
               thought: `Razorpay payment ${payment.razorpay_payment_id} was verified server-side.`,
               action: 'razorpay_payment_verified',
               status: 'SUCCESS',
-              data: { order, settlement: payment }
+              data: { order, settlement: payment, verified_total: verifiedAmt }
             }]);
             setPendingHitl(null);
             fetchAuditLogs();
@@ -671,6 +674,12 @@ export default function App() {
         return;
       }
 
+      const verifiedAmt = data.verified_total ?? (
+        typeof data.order?.amount === 'number'
+          ? (data.order.amount >= 100 ? data.order.amount / 100 : data.order.amount)
+          : pendingHitl.verifiedTotal
+      );
+
       setSteps(prev => [
         ...prev,
         {
@@ -679,7 +688,10 @@ export default function App() {
           thought: `Cryptographic sign-off verified. Razorpay Order ${data.order.id} settled autonomously for ₹${pendingHitl.verifiedTotal.toLocaleString('en-IN')}.`,
           action: "hitl_approved_and_settled",
           status: "SUCCESS",
-          data: data
+          data: {
+            ...data,
+            verified_total: verifiedAmt
+          }
         }
       ]);
       setPendingHitl(null);
@@ -1413,17 +1425,34 @@ export default function App() {
                           })()}
 
                           {/* Razorpay Order Receipt */}
-                          {step.data?.order && (
-                            <div className="mt-2.5 ml-6 p-2.5 rounded-lg bg-white border border-emerald-200 text-xs space-y-1 shadow-sm">
-                              <div className="text-emerald-700 font-semibold flex items-center gap-1.5">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Razorpay Order Verified &amp; Settled: {step.data.order.id}
+                          {step.data?.order && (() => {
+                            const verifiedAmt = 
+                              typeof step.data.verified_total === 'number' && !isNaN(step.data.verified_total)
+                                ? step.data.verified_total
+                                : typeof step.data.order?.amount === 'number' && !isNaN(step.data.order.amount)
+                                  ? (step.data.order.amount >= 100 ? step.data.order.amount / 100 : step.data.order.amount)
+                                  : typeof step.data.settlement?.amount === 'number' && !isNaN(step.data.settlement.amount)
+                                    ? (step.data.settlement.amount >= 100 ? step.data.settlement.amount / 100 : step.data.settlement.amount)
+                                    : typeof step.data.verification?.verified_total === 'number' && !isNaN(step.data.verification.verified_total)
+                                      ? step.data.verification.verified_total
+                                      : null;
+
+                            return (
+                              <div className="mt-2.5 ml-6 p-2.5 rounded-lg bg-white border border-emerald-200 text-xs space-y-1 shadow-sm">
+                                <div className="text-emerald-700 font-semibold flex items-center gap-1.5">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Razorpay Order Verified &amp; Settled: {step.data.order.id}
+                                </div>
+                                {verifiedAmt !== null && (
+                                  <div className="text-slate-700 font-medium">
+                                    Verified Amount: <strong className="text-emerald-700">₹{verifiedAmt.toLocaleString('en-IN')}</strong>
+                                  </div>
+                                )}
+                                {step.data.settlement?.razorpay_payment_id && (
+                                  <div className="text-slate-500 font-mono text-[11px]">Payment ID: {step.data.settlement.razorpay_payment_id}</div>
+                                )}
                               </div>
-                              <div className="text-slate-700 font-medium">Verified Amount: ₹{step.data.verified_total?.toLocaleString('en-IN')}</div>
-                              {step.data.settlement?.razorpay_payment_id && (
-                                <div className="text-slate-500 font-mono text-[11px]">Payment ID: {step.data.settlement.razorpay_payment_id}</div>
-                              )}
-                            </div>
-                          )}
+                            );
+                          })()}
 
                         </div>
                       ))}
