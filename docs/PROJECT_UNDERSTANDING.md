@@ -1,707 +1,338 @@
 # AgentCart: Complete Project Understanding & Architectural Study Guide
 
-> **Target Audience:** Developers, Technical Evaluators, Hackathon Judges, and Presenters.  
-> **Project Scope:** Autonomous AI Commerce Protocol with Deterministic Spend Policy Guardrails, Razorpay Payment Rails, and Cryptographic SHA-256 Audit Chaining.
+> **Target Audience:** Presenters, Hackathon Evaluators, Interviewers, and Developers.  
+> **Project Scope:** Autonomous AI Commerce Protocol with Deterministic Spend Policy Guardrails, Razorpay Rails Integration, and SHA-256 Chained Cryptographic Audit Ledger.
 
 ---
 
 ## 1. Project Overview
 
 ### What is AgentCart?
-**AgentCart** is an autonomous agentic commerce framework that enables Large Language Model (LLM) buyer agents to discover products, negotiate offers, and execute financial transactions within strict, deterministic policy boundaries on **Razorpay** payment infrastructure.
+**AgentCart** is an autonomous agentic commerce protocol and execution engine. It allows AI buyer agents (such as Google Gemini with heuristic fallbacks) to understand natural language shopping goals, discover merchant products via Model Context Protocol (MCP) catalog tools, and execute payments within **hard, deterministic financial guardrails** on **Razorpay rails**.
 
 ### What Problem Does It Solve?
-AI agents are increasingly capable of making purchase decisions. However, giving an LLM direct, unbounded access to corporate credit cards or payment gateways is dangerous:
-1. **Hallucination & Overspending:** An LLM might hallucinate prices, miscalculate quantities, or order unauthorized items.
-2. **Prompt Injection & Adversarial Exploits:** Malicious actors or compromised merchant sites could trick the agent into paying arbitrary amounts.
-3. **Lack of Auditing:** Financial systems require deterministic, immutable audit trails, whereas LLMs are non-deterministic.
-4. **Binary Control Failure:** Traditional systems either require human approval for *every* action (destroying autonomous utility) or give *unrestricted* access (catastrophic financial risk).
+As autonomous AI agents represent an increasing share of e-commerce traffic, giving an LLM direct access to credit cards or financial authority creates severe vulnerabilities:
+1. **Price Hallucination:** An LLM might hallucinate that an expensive laptop costs ₹500 and attempt to purchase it.
+2. **Prompt Injection & Adversarial Manipulation:** A malicious website or adversarial input could trick the AI agent into sending funds to an attacker.
+3. **Unbounded Spending Spree:** Without velocity limits, a runaway loop could drain merchant or corporate funds.
+4. **Lack of Cryptographic Accountability:** Financial accounting requires non-repudiable, tamper-evident audit trails.
 
-### Why Autonomous Commerce Needs Controls
-AgentCart introduces **Bounded Autonomy**:
-* Low-risk, low-value purchases below an autonomous limit are auto-approved.
-* High-value purchases trigger a **Human-in-the-Loop (HITL)** cryptographic approval gate.
-* Transactions exceeding hard ceilings are deterministically rejected by the server before reaching payment rails.
-
-```
-+-------------------------------------------------------------------------------+
-|                             AGENTCART BOUNDS                                 |
-|                                                                               |
-|   [₹0 ----------- Auto-Approve (₹3,000) ----------- Hard Ceiling (₹10,000) --] |
-|        Autonomous Execution          HITL Cryptographic Sign-Off       BLOCKED |
-+-------------------------------------------------------------------------------+
-```
-
-### Roles of Core System Components
-* **AI Buyer Agent:** Interprets human natural language intent, searches merchant catalog tools via the Model Context Protocol (MCP), evaluates product specs, and formulates cart proposals.
-* **Deterministic Policy Engine:** Python-based rule engine that validates price integrity against the merchant database, checks velocity/limits, and enforces replay protection without LLM involvement.
-* **Human Approval (HITL Gate):** A cryptographic signing mechanism where high-value transactions issue a signed HMAC-SHA256 token requiring human confirmation before a Razorpay order can be created.
-* **Razorpay Service:** Manages server-side Razorpay order creation, standard Checkout SDK modal handling, and server-to-server signature verification (`HMAC-SHA256`).
-* **Cryptographic Audit Ledger:** An immutable SQLite-backed ledger where every state transition, tool call, policy evaluation, and payment settlement is sequentially hashed and linked with SHA-256 hashes.
-* **Universal Agentic Payments (UAP / AP2):** Implements emerging agentic commerce principles: pre-authorized spending mandates, non-repudiable cryptographic intent, and idempotent settlement.
+### Why Autonomous Commerce Needs Bounded Autonomy
+AgentCart solves this by establishing **Zero Financial Authority for the LLM**:
+* **Autonomous Pre-Authorization (Auto-Approve Ceiling):** Low-value purchases within pre-approved thresholds (e.g., $\le$ ₹3,000) execute autonomously without interrupting the user.
+* **Human-in-the-Loop Gate (HITL):** High-value purchases (e.g., ₹3,001 to ₹10,000) require explicit, cryptographically signed approval from the human operator before order creation.
+* **Hard Policy Ceilings (Per-Transaction & Daily Limits):** Any purchase exceeding the per-transaction limit or cumulative daily budget is deterministically rejected by the server before reaching Razorpay rails.
 
 ---
 
-### Pitch Explanations
+## 2. Core Idea
 
-#### 30-Second Explanation
-> *"AgentCart is an autonomous commerce layer that lets AI agents purchase products on Razorpay rails while enforcing deterministic spending limits. Small purchases auto-approve, high-value orders require cryptographic human sign-off, and every action is sealed in a SHA-256 chained audit ledger."*
+AgentCart bridges natural language AI reasoning with deterministic financial execution:
 
-#### 1-Minute Explanation
-> *"Giving AI agents payment cards creates extreme financial and prompt-injection risks. AgentCart solves this by placing a deterministic policy engine between the AI buyer agent and Razorpay payment rails. When a user requests a purchase in natural language, the agent searches live MCP merchant inventory and constructs an order. The server-side policy engine verifies prices directly against the database—never trusting the LLM's numbers. Orders under ₹3,000 execute autonomously, orders between ₹3,000 and ₹10,000 trigger a signed Human-in-the-Loop approval gate, and orders exceeding ₹10,000 are blocked. Every event is hashed into an immutable audit trail."*
-
-#### Technical Explanation (For Interviewers & Judges)
-> *"AgentCart implements an agentic payment protocol following NPCI UAP and AP2 principles. It separates non-deterministic LLM reasoning (powered by Gemini with heuristic fallback) from deterministic settlement enforcement. The architecture comprises a FastAPI backend, MCP catalog discovery layer, deterministic PolicyEngine with replay protection, a Razorpay checkout integration with server-side HMAC-SHA256 signature verification, and a cryptographically chained SQLite audit ledger. The system also includes an autonomous Merchant Growth Engine for contextual upsells and cross-sells, backed by chaos engineering simulators for stockouts and price surges."*
-
----
-
-## 2. Project Structure
-
-```
-agentcart-razorpay/
-│
-├── backend/                        # FastAPI Server & Python Core Engine
-│   ├── main.py                     # API Routes, SSE streaming, payment verification
-│   ├── config.py                   # Pydantic environment configuration
-│   ├── requirements.txt            # Python dependencies (fastapi, httpx, uvicorn, etc.)
-│   │
-│   ├── agent/                      # AI Agent & Intent Decomposition
-│   │   ├── buyer_agent.py          # Multi-step Agent execution loop & streaming generator
-│   │   ├── buyer_intent.py         # Gemini API structured parser + heuristic fallback
-│   │   └── tools.py                # MCP-compliant catalog & policy tools
-│   │
-│   ├── merchant/                   # Merchant Inventory & Growth Engine
-│   │   ├── catalog.py              # CatalogDB, in-memory inventory & chaos tools
-│   │   ├── growth_engine.py        # Contextual upsell & cross-sell recommendation engine
-│   │   ├── analytics.py            # Merchant GMV, AOV, and recovery analytics
-│   │   └── models.py               # Pydantic models for Products, CartItems, Proposals
-│   │
-│   ├── security/                   # Deterministic Guardrails
-│   │   └── policy_engine.py        # Spend ceilings, pre-auth bounds, HITL HMAC tokens
-│   │
-│   ├── payments/                   # Razorpay Rails
-│   │   └── razorpay_client.py      # Razorpay order generation, checkout & webhook verification
-│   │
-│   └── audit/                      # Cryptographic Chained Ledger
-│       ├── ledger.py               # SHA-256 sequential hash-chaining engine
-│       ├── models.py               # AuditLog Pydantic schemas
-│       └── audit_ledger.db         # SQLite persistent log store
-│
-├── frontend/                       # React 18 + TypeScript + Vite + TailwindCSS UI
-│   ├── src/
-│   │   ├── App.tsx                 # Single-page application with category tab views
-│   │   ├── index.css               # Typography styles, keyframe animations, scrollbars
-│   │   └── main.tsx                # React DOM entry point
-│   ├── index.html                  # HTML entry point with Google Fonts (Plus Jakarta Sans)
-│   ├── tailwind.config.js          # Custom Razorpay palette & typography tokens
-│   ├── package.json                # Frontend npm dependencies
-│   └── vite.config.ts              # Vite development & build configuration
-│
-├── evals/                          # Evaluation Suite & Adversarial Security Tests
-│   ├── test_phase1_security_ledger.py
-│   ├── test_phase2_gemini_agent.py
-│   ├── test_phase3_growth_engine.py
-│   ├── test_phase4_razorpay_checkout.py
-│   ├── test_phase5_recommendation_integrity.py
-│   ├── test_phase6_order_lifecycle.py
-│   ├── test_phase7_growth_and_reconciliation.py
-│   ├── test_phase8_adversarial_security.py
-│   ├── test_agent_scenarios.py
-│   ├── run_growth_evaluation.py
-│   └── demo_walkthrough.py
-│
-├── docs/                           # Documentation and guides
-│   └── PROJECT_UNDERSTANDING.md    # This comprehensive document
-│
-├── .env.example                    # Environment variable template
-├── readme.md                       # High-level project README
-└── SUBMISSION_CHECKLIST.md         # Verification and submission checklist
-```
+| Step | Component | Responsibility | Financial Authority |
+| :--- | :--- | :--- | :---: |
+| **1. Intent Understanding** | Gemini LLM / Heuristic Parser | Extracts keywords, category, quantity, budget | **None (0%)** |
+| **2. Catalog Discovery** | MCP Catalog Tool & SQLite DB | Searches inventory and specifications | **None (0%)** |
+| **3. Recommendation & Growth** | Merchant Growth Engine | Evaluates compatible upsells and cross-sells | **None (0%)** |
+| **4. Policy Gate Check** | Server Deterministic PolicyEngine | Recalculates total from authoritative DB, enforces limits | **100% Truth** |
+| **5. Human-in-the-Loop** | Cryptographic HMAC-SHA256 Token | Secures human sign-off on high-value orders | **User Mandate** |
+| **6. Razorpay Rails** | Razorpay Service (Test/Mock Mode) | Creates order, collects payment, verifies signatures | **Payment Rail** |
+| **7. Tamper-Evident Ledger** | Cryptographic Audit Ledger | Records chained SHA-256 hash history of every event | **Immutable Proof** |
 
 ---
 
-## 3. High-Level Architecture
+## 3. Complete End-to-End Flow
 
 ```
-                                  USER INTERACTION
-                                         │
-                    [Natural Language Goal + Budget Allocation]
-                                         │
-                                         ▼
-                            REACT FRONTEND (Vite / TS)
-                                         │
-                     POST /api/agent/run (SSE Streaming Request)
-                                         │
-                                         ▼
-                                FASTAPI BACKEND
-                                         │
-                    ┌────────────────────┴────────────────────┐
-                    │                                         │
-                    ▼                                         ▼
-           Gemini Intent Parser                     Heuristic Fallback
-         (Structured JSON schema)                (Regex / Keyword Parsing)
-                    │                                         │
-                    └────────────────────┬────────────────────┘
-                                         │
-                                [BuyerIntent Object]
-                                         │
-                                         ▼
-                             MCP CATALOG DISCOVERY
-                      (Search by specs, budget, stock)
-                                         │
-                                         ▼
-                          GROUNDED RECOMMENDATION ENGINE
-                       (+ Upsell / Cross-Sell Growth Engine)
-                                         │
-                                         ▼
-                               ORDER PROPOSAL (DB Verified)
-                                         │
-                                         ▼
-                          DETERMINISTIC POLICY ENGINE
-                                         │
-              ┌──────────────────────────┼──────────────────────────┐
-              │                          │                          │
-        Total <= ₹3,000         ₹3,000 < Total <= ₹10,000        Total > ₹10,000
-              │                          │                          │
-              ▼                          ▼                          ▼
-     [Auto-Approve UAP]         [HITL Approval Gate]       [Hard Rejection]
-              │                  (HMAC Sign-Off Token)              │
-              │                          │                          │
-              │                  Human Approved?                    │
-              │                 YES /         \ NO                  │
-              │                     /             \                 │
-              └───────────────►─── /               ▼                ▼
-                                  │             ABORTED          HALTED
-                                  ▼
-                         RAZORPAY PAYMENT RAILS
-                       • Create Razorpay Order
-                       • Standard Checkout Modal
-                       • Server-Side Signature Verification
-                                  │
-                                  ▼
-                        SETTLEMENT & FULFILLMENT
-                                  │
-                                  ▼
-                      CRYPTOGRAPHIC AUDIT LEDGER
-                   (SHA-256 Chained Event Record)
-```
-
----
-
-## 4. Frontend Architecture & UI Breakdown
-
-* **Framework:** React 18, TypeScript, Vite 5, TailwindCSS.
-* **Component Model:** Clean single-page category-wise tab navigation (`Product`, `Catalog`, `Analytics`, `Policy & Security`, `Audit Ledger`).
-* **Design Philosophy:** Fintech aesthetic inspired by Razorpay and modern SaaS landing pages. Light off-white background (`#f8fafc`), dark navy typography (`#0a192f`), and Razorpay primary blue (`#0c83fe` / `#0052cc`).
-
-### Category Views
-1. **Product View:**
-   * Editorial hero headline: *"Autonomous commerce, built for trust."*
-   * Goal input textarea with a quick **Clear** action and auto-focus.
-   * User budget allocation slider ($\text{₹1,000}$ to $\text{₹20,000}$).
-   * **Execute Autonomous Purchase** primary button.
-   * Four one-click evaluation scenario presets (Pre-Auth, HITL Gate, B2B Pantry, Hard Ceiling).
-   * **Dedicated Purchase Execution & Settlement View:** Visualizes the 6-stage pipeline (Intent $\to$ Discovery $\to$ Policy Check $\to$ Approval $\to$ Payment $\to$ Settlement), step activity cards, interactive Upsell/Cross-sell cards, and HITL sign-off banner.
-2. **Catalog View:**
-   * Live MCP catalog table displaying products, unit prices, real-time stock, and merchant names.
-   * Chaos engineering controls: `+Surge` (80% price inflation), `Deplete` (simulate stockout), `Simulate Gateway Failure`, and `Reset Store`.
-3. **Analytics View:**
-   * Merchant Growth Dashboard: Total Settled GMV, Conversion Rate, AOV, Incremental Revenue, Upsell/Cross-sell acceptance rates, HITL Gate ratio, and fail-safe recovery counts.
-4. **Policy & Security View:**
-   * Real-time policy configuration sliders: Autonomous Pre-Auth Limit ($\text{₹500}$–$\text{₹3,000}$), Hard Spending Ceiling ($\text{₹3,000}$–$\text{₹10,000}$), and Strict Mode toggle (Always Require Human Approval).
-5. **Audit Ledger View:**
-   * Chronological view of SQLite audit entries with timestamps, event types, human-readable summaries, and immutable SHA-256 cryptographic hashes.
-
----
-
-## 5. End-to-End Execution Trace ("What Happens When I Click Execute?")
-
-Here is the exact code execution path across the 16 stages:
-
-```
-[UI Button Click] 
-  ──► handleRunAgent() [App.tsx:391]
-  ──► POST /api/agent/run [main.py:126]
-  ──► buyer_agent.run_goal_stream() [buyer_agent.py:29]
-  ──► buyer_intent.parse_intent() [buyer_intent.py:22]
-  ──► tool_search_catalog() [tools.py:10]
-  ──► catalog_db.search() [catalog.py:133]
-  ──► _pick_best_match() [buyer_agent.py:539]
-  ──► growth_engine.get_cross_sell_candidate() [growth_engine.py:67]
-  ──► OrderProposal construction [buyer_agent.py:316]
-  ──► policy_engine.verify_order_proposal() [policy_engine.py:112]
-  ──► Branch: Auto-Approve vs HITL vs Rejection [buyer_agent.py:360]
-  ──► razorpay_service.create_order() [razorpay_client.py:93]
-  ──► SSE event to Client [App.tsx:300]
-  ──► Razorpay Checkout Modal [App.tsx:340]
-  ──► POST /api/payments/verify [main.py:268]
-  ──► razorpay_service.verify_payment() [razorpay_client.py:221]
-  ──► audit_ledger.record() [ledger.py:50]
-  ──► UI Step Updated to SUCCESS & Settled [App.tsx:940]
-```
-
-### Detailed Breakdown of Every Stage
-
-| Stage | File & Function | Input Data | Operation Performed | Output Data | Next Stage |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. UI Click** | `frontend/src/App.tsx`<br>`handleRunAgent()` | `promptGoal`, `maxBudget` | Clears previous steps, generates `session_id`, initiates SSE stream. | SSE HTTP Request | Stage 2 |
-| **2. API Dispatch** | `backend/main.py`<br>`run_agent_stream()` | `AgentRunRequest` | Receives JSON body, creates `StreamingResponse` wrapping async generator. | StreamingResponse | Stage 3 |
-| **3. Agent Intake** | `backend/agent/buyer_agent.py`<br>`run_goal_stream()` | `session_id`, `goal`, `budget` | Logs `AGENT_INTAKE` in audit ledger, delegates parsing to Gemini. | Session initialized | Stage 4 |
-| **4. Intent Parsing** | `backend/agent/buyer_intent.py`<br>`parse_intent()` | Raw text goal string | Calls Gemini REST API with JSON schema; on 400/timeout, calls regex heuristic fallback. | `BuyerIntent` object | Stage 5 |
-| **5. Catalog Search** | `backend/agent/tools.py`<br>`tool_search_catalog()` | Query string, category, price cap | Queries in-memory `catalog_db`, returns candidate list matching criteria. | `raw_candidates` list | Stage 6 |
-| **6. Spec Matching** | `backend/agent/buyer_agent.py`<br>`_pick_best_match()` | Candidates, intent specs | Relevance scoring based on keywords, category, price, and spec matches. | `primary_match` (`Product`) | Stage 7 |
-| **7. Growth Evaluation** | `backend/merchant/growth_engine.py`<br>`get_cross_sell_candidate()` | Base product, budget | Checks reciprocal compatible IDs, stock, and budget constraints for add-on options. | `upsell_cand`, `cross_sell_cand` | Stage 8 |
-| **8. Proposal Form** | `backend/agent/buyer_agent.py`<br>Line 316 | Selected `CartItem` objects | Sums DB unit prices $\times$ quantity to construct server-validated `OrderProposal`. | `OrderProposal` object | Stage 9 |
-| **9. Policy Verification**| `backend/security/policy_engine.py`<br>`verify_order_proposal()`| `session_id`, `OrderProposal` | Verifies DB prices, enforces spending ceiling, checks velocity & replay attacks. | `VerificationResult` | Stage 10 |
-| **10. Policy Branching**| `backend/agent/buyer_agent.py`<br>Lines 360–375 | `VerificationResult.status` | • `VALID` $\to$ Proceed to Razorpay<br>• `HITL_REQUIRED` $\to$ Pause for sign-off<br>• `REJECTED` $\to$ Abort | Status Event | Stage 11 |
-| **11. Razorpay Order** | `backend/payments/razorpay_client.py`<br>`create_order()` | Amount, session, idempotency key | Creates official Razorpay order in test/mock mode with receipt ID. | `rzp_order` dict | Stage 12 |
-| **12. Client Checkout**| `frontend/src/App.tsx`<br>`openRazorpayCheckout()` | `checkout` options | Loads Razorpay Standard Checkout SDK popup on client browser. | `razorpay_payment_id` | Stage 13 |
-| **13. Signature Check**| `backend/payments/razorpay_client.py`<br>`verify_payment()` | Payment ID, order ID, signature | Calculates `hmac.new(secret, order_id + "|" + payment_id, sha256)`. | Verification boolean | Stage 14 |
-| **14. Settlement** | `backend/payments/razorpay_client.py`<br>`simulate_payment_settlement()`| Order ID, amount | Records payment capture and marks idempotency key as consumed. | Settlement record | Stage 15 |
-| **15. Audit Ledger** | `backend/audit/ledger.py`<br>`record()` | Event type, status, summary, details | Generates SHA-256 hash chained to previous record and persists to SQLite. | `AuditLog` entry | Stage 16 |
-| **16. UI Finalize** | `frontend/src/App.tsx`<br>Line 930 | Completed step data | Transitions step badge to `SUCCESS`, renders order receipt, unlocks new purchase. | Final UI State | Completed |
-
----
-
-## 6. Natural Language Intent Decomposition
-
-### Real Example Walkthrough
-**User Input:** `"Buy 2 braided 4K HDMI cables for office setup"` with Budget: $\text{₹3,000}$.
-
-```
-User Text: "Buy 2 braided 4K HDMI cables for office setup"
-   │
-   ▼
-[buyer_intent.py: GeminiIntentParser]
-   │
-   ├── Model: gemini-3.5-flash-lite (REST Endpoint)
-   ├── System Prompt: "Extract structured search intent parameters..."
-   └── Response Schema: { query, category, budget, quantity, required_features }
-   │
-   ▼ (Output)
-BuyerIntent(
-    query="4K HDMI cable",
-    category="cables",
-    budget=3000.0,
-    quantity=2,
-    use_case="office setup",
-    required_features=["braided", "4k"]
-)
-```
-
-### Heuristic Fallback Engine
-* **Why it exists:** To guarantee **100% zero-dependency local operation** even when `GEMINI_API_KEY` is missing, quota-exhausted, or returns an HTTP 400 error.
-* **Extraction Logic (`buyer_agent.py`):**
-  * `_extract_quantity()`: Regex `\b(\d+)\s*(units|pcs|pieces|items|cables|mice|chargers|keyboards|packs)?\b`.
-  * `_extract_category()`: Keyword matching (`"cable"`/`"hdmi"` $\to$ `"cables"`, `"keyboard"`/`"mouse"` $\to$ `"peripherals"`).
-  * `_extract_search_keywords()`: Scans for device identifiers (`"hdmi"`, `"hub"`, `"keychron"`, `"coffee"`, `"charger"`).
-
----
-
-## 7. MCP Merchant Catalog Architecture
-
-### Data Model & In-Memory Store
-Implemented in [`backend/merchant/catalog.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/merchant/catalog.py).
-
-```python
-class Product(BaseModel):
-    id: str                          # e.g., "prod_hdmi_braided_01"
-    name: str                        # e.g., "Ultra High Speed HDMI 2.1 Braided Cable (2m)"
-    category: str                    # "cables"
-    description: str                 # Full catalog specification
-    price: float                     # e.g., 799.00 (in INR)
-    stock: int                       # Real-time stock count (e.g., 45)
-    specs: Dict[str, Any]            # {"resolution": "8K@60Hz, 4K@120Hz", "bandwidth": "48Gbps"}
-    rating: float                    # 4.8
-    merchant_id: str                 # "merchant_rzp_tech_01"
-    merchant_name: str               # "CloudGear Technologies"
-    compatible_product_ids: List[str]# ["prod_usb_c_hub_01"] (Used by Growth Engine)
-```
-
-### MCP Tool Pattern
-In [`backend/agent/tools.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/agent/tools.py), the catalog is exposed via structured tool calls (`tool_search_catalog`, `tool_get_product_details`), allowing AI agents to query specifications and pricing without direct database access.
-
----
-
-## 8. Product Recommendation & Growth Engine
-
-### Relevance Scoring Formula
-Implemented in `buyer_agent._score_product_relevance()`:
-$$\text{Score} = (\text{Item Type Match} \times 1000) + (\text{Category Match} \times 200) + (\text{Feature Matches} \times 50) + (\text{Use Case Match} \times 30)$$
-* **Penalties:**
-  * Item type mismatch (e.g., requested "keyboard" but item is "mouse"): $-10,000$.
-  * Exceeds user budget cap: $-5,000$.
-
-### Cross-Sell & Upsell Logic ([`backend/merchant/growth_engine.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/merchant/growth_engine.py))
-1. **Upsell Upgrade:** Discovers in-stock items in the same category with strictly superior specs whose price delta fits the user's budget.
-2. **Compatible Cross-Sell:** Scans `product.compatible_product_ids` for bidirectional merchant-verified pairings (e.g., HDMI Cable + USB-C Hub).
-3. **Interactive Add-to-Cart:**
-   * Clicking **Add to Cart** updates the backend order proposal (`items = [base_product, cross_sell_product]`), recalculates the total, and updates the execution trace.
-   * If the combined total exceeds policy thresholds, the deterministic policy engine intercepts the cart and enforces the HITL approval gate or rejection.
-
----
-
-## 9. Order Proposal Construction
-
-The backend **never trusts numbers generated by the AI agent**. It constructs proposals independently:
-
-$$\text{Total Amount} = \sum (\text{DB Unit Price} \times \text{Quantity}) + \text{Accepted Add-ons}$$
-
-```json
-{
-  "merchant_id": "merchant_rzp_tech_01",
-  "items": [
-    {
-      "product_id": "prod_hdmi_braided_01",
-      "quantity": 2,
-      "unit_price": 799.0,
-      "name": "Ultra High Speed HDMI 2.1 Braided Cable (2m)"
-    },
-    {
-      "product_id": "prod_usb_c_hub_01",
-      "quantity": 1,
-      "unit_price": 2499.0,
-      "name": "Anker 7-in-1 USB-C Hub"
-    }
-  ],
-  "total_amount": 4097.0,
-  "user_goal": "Buy 2 braided 4K HDMI cables for office setup"
-}
-```
-
----
-
-## 10. Deterministic Policy & Security Guardrails
-
-Implemented in [`backend/security/policy_engine.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/security/policy_engine.py).
-
-### Configured Thresholds
-* **Autonomous Pre-Authorization Limit:** $\text{₹3,000}$ (Default). Orders $\le \text{₹3,000}$ execute autonomously.
-* **Human-in-the-Loop (HITL) Threshold:** Orders between $\text{₹3,000}$ and $\text{₹10,000}$ pause for cryptographic user sign-off.
-* **Hard Single-Transaction Ceiling:** $\text{₹10,000}$ (Default). Any order $> \text{₹10,000}$ is deterministically rejected.
-* **Strict Mode:** Optional toggle to require human sign-off on 100% of transactions regardless of amount.
-
-### Replay & Velocity Attack Protection
-* Every proposal is assigned an idempotent SHA-256 key:
-  $$\text{Idempotency Key} = \text{SHA256}(\text{session\_id} + \text{item\_ids} + \text{quantities} + \text{verified\_total})$$
-* Once settled, the key is permanently marked as processed in `policy_engine._processed_keys`, preventing replay attacks.
-
----
-
-## 11. Human-in-the-Loop (HITL) Approval Lifecycle
-
-```
-Order Total: ₹8,000 (Exceeds ₹3,000 Pre-Auth)
-   │
-   ▼
-[PolicyEngine.generate_hitl_token()]
-   │
-   ├── Creates HMAC-SHA256 Token bound to session_id + verified_total + timestamp
-   └── Emits SSE Event: status = "PENDING_APPROVAL"
-   │
-   ▼
-[Frontend Approval Banner Displays]
-   │
-   ├── User clicks "Approve & Settle Razorpay"
-   └── Sends POST /api/agent/approve-hitl with token & proposal
-   │
-   ▼
-[PolicyEngine.verify_hitl_token()]
-   │
-   ├── Verifies HMAC signature, session match, amount integrity, and expiration (15 mins)
-   ├── Consumes token (single-use replay protection)
-   └── Creates Razorpay Order -> Settle
-```
-
----
-
-## 12. Payment Rails & Razorpay Integration
-
-Implemented in [`backend/payments/razorpay_client.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/payments/razorpay_client.py).
-
-### Modes of Operation
-1. **Live Test Mode (`RAZORPAY_MOCK_MODE=false`):**
-   * Uses real `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`.
-   * Calls `https://api.razorpay.com/v1/orders`.
-   * Pops up the real Razorpay Checkout modal on the browser.
-2. **Sandbox / Mock Mode (`RAZORPAY_MOCK_MODE=true`):**
-   * Built-in sandbox mode for zero-setup demonstrations.
-   * Generates deterministic order IDs (`order_mock_...`) and simulates payment captures.
-
-### Cryptographic Signature Verification
-```python
-def verify_payment(self, session_id: str, order_id: str, payment_id: str, signature: str) -> Dict[str, Any]:
-    expected = hmac.new(
-        self.key_secret.encode(),
-        f"{order_id}|{payment_id}".encode(),
-        hashlib.sha256
-    ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        raise ValueError("Razorpay signature verification failed")
-```
-
----
-
-## 13. Settlement & Receipt Generation
-
-Settlement marks the financial finality of the transaction:
-1. **Order Capture:** Payment is verified via server signature or webhook.
-2. **Idempotency Finalization:** Idempotency key is burned.
-3. **Cryptographic Receipt:** A verified payload containing Razorpay Order ID, Payment ID, line items, and timestamp is returned to the client and sealed in the audit ledger.
-
----
-
-## 14. Cryptographic Audit Ledger (SHA-256 Chaining)
-
-Implemented in [`backend/audit/ledger.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/audit/ledger.py).
-
-### How Hash Chaining Works
-Every event contains the hash of the *immediately preceding event*:
-
-$$\text{Hash}_N = \text{SHA256}(\text{LogID} + \text{SessionID} + \text{Timestamp} + \text{EventType} + \text{Status} + \text{JSON(Details)} + \text{Hash}_{N-1})$$
-
-```
-[Event 1: AGENT_INTAKE]   ──► Hash_1 = SHA256(Event_1 + GENESIS)
+[Buyer Goal (Voice or Text)]
         │
         ▼
-[Event 2: POLICY_CHECK]   ──► Hash_2 = SHA256(Event_2 + Hash_1)
+[1. Goal Intake & Parsing] (Gemini 2.5 Flash / Deterministic Fallback)
         │
         ▼
-[Event 3: PAYMENT_CAPTURED] ──► Hash_3 = SHA256(Event_3 + Hash_2)
+[2. MCP Merchant Catalog Search] (Fetches authoritative items from SQLite)
+        │
+        ▼
+[3. Grounded Recommendation & Growth] (Proposes item + contextual upsell / cross-sell)
+        │
+        ▼
+[4. Order Proposal Formulation] (Calculates verified totals from database)
+        │
+        ▼
+[5. Deterministic Policy Gate Check]
+        │
+        ├── Exceeds Per-Tx Limit or Daily Limit? ────────► [REJECTED & HALTED]
+        │
+        ├── Exceeds Auto-Approve Ceiling? ──────────────► [HITL SIGN-OFF GATE]
+        │                                                         │
+        │                                           ┌─────────────┴─────────────┐
+        │                                           ▼                           ▼
+        │                                    [User Approves]             [User Rejects]
+        │                                           │                           │
+        │                                           ▼                           ▼
+        │                                [Razorpay Checkout]         [ORDER REJECTED / HALTED]
+        │                                           │
+        └── Under Auto-Approve Ceiling? ────────────┤
+                                                    ▼
+                                     [6. Razorpay Order Creation]
+                                                    │
+                                                    ▼
+                                     [7. HMAC-SHA256 Signature Verification]
+                                                    │
+                                                    ▼
+                                     [8. Payment Capture & Settlement]
+                                                    │
+                                                    ▼
+                                     [9. Chained SHA-256 Audit Sealed]
 ```
 
-If an attacker modifies a past price or event in the SQLite database, every subsequent hash in the chain becomes invalid, immediately exposing database tampering.
+---
+
+## 4. Frontend Architecture
+
+* **Framework:** React 18 with Vite, TypeScript, and Tailwind CSS.
+* **Key Components & Layout in `frontend/src/App.tsx`:**
+  - **Persistent Header:** Brand banner, Razorpay status badge, Policy Gate indicator, and "Launch Purchase" CTA.
+  - **Sidebar Navigation:** 6 tabs (`Product`, `Order History`, `Catalog`, `Analytics`, `Policy & Security`, `Audit Ledger`).
+  - **Natural Language Goal Box:** Textarea with inline Web Speech API **Voice Input** microphone button, budget slider, and quick evaluation scenarios.
+  - **Execution & Settlement Trace:** Live Server-Sent Events (SSE) stream showing each pipeline step in real time.
+  - **HITL Sign-Off Card:** Displays when approval is required, featuring clear "Approve & Settle Razorpay" and "Reject Proposal" buttons.
+  - **Growth Engine Cards:** Interactive upsell upgrade and cross-sell "Add to Cart" / "Decline" offers.
+  - **Order History View:** Searchable/filterable list of all past transactions, statuses, timestamps, amounts, and audit trail links.
+  - **Policy & Security Panel:** Interactive controls for Auto-Approve Ceiling, Per-Transaction Limit, and Daily Spending Limit with live gauge.
+* **Communication with Backend:** HTTP JSON requests for CRUD/policy/growth and `fetch()` SSE streaming (`text/event-stream`) for live agent execution.
 
 ---
 
-## 15. Database & State Lifecycle
+## 5. Backend Architecture
 
-| Storage Layer | Technology | Persistence Scope | Content Stored |
-| :--- | :--- | :--- | :--- |
-| **Audit Logs** | SQLite (`audit_ledger.db`) | Permanent (Disk) | Immutable SHA-256 chained transaction logs |
-| **Merchant Catalog** | In-Memory / CatalogDB | Runtime / Modifiable | Products, live stock counts, pricing |
-| **Policy Config** | In-Memory / PolicyEngine | Runtime / Configurable| Pre-auth limits, ceilings, category filters |
-| **Processed Keys** | In-Memory Set | Runtime (Session) | Burned idempotency keys for replay protection |
-| **Frontend State** | React `useState` | Browser Memory | Current goal, active steps, offer decisions |
-
-### What "Start New Purchase" / "Clear" Does
-* **Cleared:** `promptGoal` (`""`), budget allocation (reset to $\text{₹3,000}$), execution trace (`steps = []`), session ID, `pendingHitl`, and `offerDecisions`.
-* **Retained:** SQLite Audit Ledger records, Merchant Growth Analytics metrics, Merchant Inventory, and Policy limits.
+* **Framework:** FastAPI (Python 3.10+) with Uvicorn ASGI server and Pydantic schema validation.
+* **Directory Structure & Roles:**
+  - `backend/main.py`: REST endpoints, SSE agent stream, webhooks, and order lifecycle management.
+  - `backend/agent/`: Buyer agent orchestrator (`buyer_agent.py`), Gemini intent parser with fallback (`buyer_intent.py`), and MCP tools (`tools.py`).
+  - `backend/security/policy_engine.py`: Server-side deterministic policy validation, daily spending tracker, HMAC token signing/verification, and idempotency cache.
+  - `backend/merchant/`: SQLite catalog management (`catalog.py`), growth engine (`growth_engine.py`), and analytics aggregator (`analytics.py`).
+  - `backend/payments/razorpay_client.py`: Razorpay order creation, Checkout modal options, HMAC-SHA256 signature verification, and mock sandbox simulation.
+  - `backend/audit/`: SHA-256 chained tamper-evident audit ledger (`ledger.py`) backed by SQLite.
 
 ---
 
-## 16. Merchant Growth Analytics Metrics
+## 6. Agent / Intent Understanding
 
-Computed dynamically in [`backend/merchant/growth_engine.py`](file:///c:/INTERNSHIP/agentcart-razorpay/backend/merchant/growth_engine.py):
-
-* **Total Settled GMV:** Sum of all successful `PAYMENT_CAPTURED` transactions on Razorpay.
-* **Conversion Rate:** $\frac{\text{Settled Purchases}}{\text{Total Sessions}} \times 100$.
-* **Average Order Value (AOV):** $\frac{\text{Total Revenue}}{\text{Total Purchases}}$.
-* **Incremental Revenue:** Revenue generated exclusively from accepted upsells and cross-sells.
-* **Upsell Acceptance Rate:** $\frac{\text{UPSELL\_ACCEPTED}}{\text{UPSELL\_PROPOSED}} \times 100$.
-* **Cross-Sell Acceptance Rate:** $\frac{\text{CROSS\_SELL\_ACCEPTED}}{\text{CROSS\_SELL\_PROPOSED}} \times 100$.
-* **HITL Gate Ratio:** Percentage of orders requiring human cryptographic sign-off.
-* **Stockout Auto-Recoveries:** Number of times the agent autonomously recovered from an out-of-stock primary item by selecting a catalog-proven alternative.
+1. **Natural Language Intake:** The user enters a shopping goal via typing or voice (e.g., *"Buy 2 braided 4K HDMI cables for office setup"*).
+2. **Gemini Intent Decomposition:** Calls Google Gemini (`gemini-2.5-flash` or configured model) to produce a structured JSON schema:
+   - `query`: Primary search term (`"braided 4K HDMI cable"`)
+   - `category`: Target catalog category (`"cables"`)
+   - `budget`: Parsed ceiling (`3000.0`)
+   - `quantity`: Desired units (`2`)
+   - `required_features`: Extracted key features (`["4k", "braided"]`)
+3. **Deterministic Heuristic Fallback:** If the Gemini API is unavailable or offline, the agent automatically switches to regex/keyword heuristics without throwing an unhandled exception or halting the pipeline.
 
 ---
 
-## 17. Error Handling & Fail-Safe Matrix
+## 7. Catalog & Product Discovery
 
-| Trigger Event | Detection Point | Autonomous System Response |
+* **Authoritative Catalog:** Stored in an SQLite database containing real products across categories (`accessories`, `cables`, `peripherals`, `pantry`) with verified unit prices, stock counts, and technical specs.
+* **Discovery via MCP Tools:** The agent invokes `tool_search_catalog(query, category, max_price)` to find matching candidates.
+* **Zero Trust on LLM Prices:** The agent is NEVER permitted to set or state unit prices; prices are strictly retrieved from the database.
+* **Chaos Engineering & Resilience:**
+  - **Stockout Auto-Recovery:** If the top item has 0 stock, the agent intercepts the stockout, logs an `ERROR_RECOVERED` event, and automatically recommends an in-stock alternative in the same category.
+  - **Price Surge Rejection:** If price surges before checkout, the policy engine recalculates the new verified total and prevents unauthorized capture.
+
+---
+
+## 8. Policy & Security
+
+The backend policy engine enforces three strict spending controls:
+
+1. **Per-Transaction Limit (Max Allowed Single Order):**
+   - Hard cap (e.g., ₹10,000.00). Any order whose verified total exceeds this limit is immediately blocked (`REJECTED_OVER_BUDGET`).
+2. **Auto-Approve Ceiling (Autonomous Mandate):**
+   - Pre-authorized ceiling (e.g., ₹3,000.00). Orders $\le$ this amount are pre-authorized autonomously.
+   - Orders exceeding this ceiling trigger Human-in-the-Loop approval (`HITL_REQUIRED`).
+3. **Daily Spending Limit:**
+   - Tracks cumulative successful spending for the current calendar day across all settled transactions.
+   - If a new order would cause total daily spend to exceed the daily limit (e.g., ₹25,000.00), the transaction is blocked (`REJECTED_OVER_DAILY_BUDGET`).
+4. **Replay & Idempotency Protection:**
+   - Generates an SHA-256 digest over `session_id`, `merchant_id`, `total_amount`, and items. Duplicate orders within a sliding window are rejected (`REJECTED_DUPLICATE`).
+
+---
+
+## 9. Human-in-the-Loop (HITL)
+
+### Trigger Condition
+When an order's verified database total is above the `auto_approve_limit` and within the `max_single_transaction_limit`.
+
+### Cryptographic Sign-Off Token
+The server issues a single-use token: `HMAC-SHA256(HITL_SIGNING_SECRET, session_id:amount:digest:idempotency_key:exp)`
+
+### Approve Path
+1. Human clicks **"Approve & Settle Razorpay"**.
+2. Frontend submits token to `/api/agent/approve-hitl`.
+3. Backend verifies HMAC signature, checks expiration, and consumes token in `used_hitl_tokens` (preventing replay).
+4. Razorpay order is created and settled.
+
+### Reject Path
+1. Human clicks **"Reject Proposal"**.
+2. Frontend immediately halts the purchase pipeline, clears pending status, and sends POST `/api/agent/reject-hitl`.
+3. An execution trace step is appended: `title: "Human Approval Rejected", status: "REJECTED"`.
+4. Audit ledger logs `HITL_REJECTED`.
+5. Status ribbon updates to **"Order Rejected (Approval Declined)"**.
+6. No payment API is called, and no money is captured.
+
+---
+
+## 10. Cross-Sell & Upsell ("Add to Cart")
+
+* **Contextual Suggestions:** Powered by the Merchant Growth Engine using category compatibility graphs (e.g., Keyboard $\rightarrow$ Wrist Rest / Mouse).
+* **"Add to Cart" Action:**
+  - Adds attachment to cart proposal.
+  - Recalculates total from authoritative database prices.
+  - Re-evaluates policy engine: if the updated total crosses the auto-approve ceiling, HITL is dynamically triggered.
+* **"Decline" Action:**
+  - Records offer decline in growth analytics.
+  - Preserves original base order unchanged.
+
+---
+
+## 11. Razorpay Integration
+
+* **Live Test Mode:** When `RAZORPAY_KEY_ID` / `KEY_SECRET` are provided and `RAZORPAY_MOCK_MODE=false`, the app opens the official Razorpay Checkout modal for test cards/UPI.
+* **Mock Sandbox Mode:** When `RAZORPAY_MOCK_MODE=true` (or keys absent), AgentCart simulates order creation and settlement with HMAC signatures, allowing 100% deterministic local testing and CI verification.
+* **Server-Side Verification:** Client responses are NEVER trusted as proof of payment. Payment is only marked `PAID` after verifying Razorpay HMAC signatures or webhooks on raw payload bytes.
+
+---
+
+## 12. Cryptographic Audit Ledger
+
+* **SHA-256 Chaining:** Every log entry contains `previous_hash` and `cryptographic_hash`.
+* **Formula:** $\text{Hash}_n = \text{SHA-256}(\text{Hash}_{n-1} : \text{id} : \text{session\_id} : \text{timestamp} : \text{event\_type} : \text{status} : \text{summary} : \text{details\_json})$
+* **Tamper Evidence:** Modifying, inserting, or deleting any historical entry breaks the hash chain, immediately detected by `verify_chain_integrity()`.
+
+---
+
+## 13. Order History / Tracker
+
+* Accessible via the **Order History** tab.
+* Displays a clean table of all sessions and orders:
+  - **Order ID & Session ID**
+  - **Natural Language Goal**
+  - **Verified Amount (₹)**
+  - **Status:** `Settled` (green), `Rejected` (rose), `Pending Approval` (amber), `Created` (slate).
+  - **Payment ID**
+  - **Timestamp**
+  - **View Logs Button:** Instantly filters the SHA-256 audit ledger to inspect the exact cryptographic event stream for that order.
+
+---
+
+## 14. Voice Input
+
+* Implemented directly in the Natural Language Goal card using the browser **Web Speech API** (`window.SpeechRecognition` / `webkitSpeechRecognition`).
+* **Flow:**
+  1. User clicks the microphone button.
+  2. Button pulses red with `"Listening..."`.
+  3. Spoken audio is transcribed into English text and inserted into the goal textarea.
+  4. User can review, edit, or execute the autonomous purchase.
+  5. If unsupported or microphone access is denied, a non-intrusive warning appears and standard typing continues uninterrupted.
+
+---
+
+## 15. Important Files Reference
+
+| File Path | Purpose | When Used |
 | :--- | :--- | :--- |
-| **Gemini API 400 / Timeout** | `buyer_intent.py` | Gracefully switches to regex keyword heuristic parser; transaction proceeds without interruption. |
-| **Item Stockout (0 stock)** | `buyer_agent.py:207` | Logs `ERROR_RECOVERED`, queries category for in-stock substitute, and continues order. |
-| **Price Surge (+80%)** | `policy_engine.py` | Detects that updated price exceeds pre-auth limit or user budget; triggers HITL gate or rejects order. |
-| **Ceiling Exceeded (>₹10k)** | `policy_engine.py` | Hard rejection (`status = "REJECTED"`); halts execution and prevents Razorpay order creation. |
-| **Payment Failure / Dismissal** | `main.py:289` | Records cancellation in audit ledger; leaves order marked as failed; records ₹0 revenue. |
+| `backend/main.py` | FastAPI application, REST endpoints, SSE stream, webhook handler | During every client request & webhook |
+| `backend/security/policy_engine.py` | Deterministic spend verification, daily limit check, HITL HMAC signing | Before any order proposal is approved |
+| `backend/agent/buyer_agent.py` | Agentic loop orchestrating intake, search, recommendation, and execution | During autonomous purchase execution |
+| `backend/agent/buyer_intent.py` | Gemini LLM structured intent parser and heuristic fallback | During Goal Intake phase (Step 1) |
+| `backend/merchant/catalog.py` | Authoritative SQLite catalog database and chaos simulation | During catalog discovery and price checks |
+| `backend/merchant/growth_engine.py` | Catalog-grounded upsell and cross-sell recommendation engine | Formulating recommendations & add-ons |
+| `backend/payments/razorpay_client.py` | Razorpay Orders API client, signature verification, and mock sandbox | Order creation, checkout, settlement |
+| `backend/audit/ledger.py` | Tamper-evident SHA-256 chained audit ledger in SQLite | Every event, transition, and state change |
+| `frontend/src/App.tsx` | Main React UI containing all 6 navigation views and purchase pipeline | User-facing dashboard and interactive UI |
 
 ---
 
-## 18. Testing & Evaluation Suite
+## 16. API & Data Flow Summary
 
-Located in [`evals/`](file:///c:/INTERNSHIP/agentcart-razorpay/evals):
-
-1. **`test_phase1_security_ledger.py`:** Tests SHA-256 hash chaining, tamper detection, and genesis hashing.
-2. **`test_phase2_gemini_agent.py`:** Validates intent extraction and heuristic fallback resilience.
-3. **`test_phase3_growth_engine.py`:** Tests upsell/cross-sell generation and metric aggregation.
-4. **`test_phase4_razorpay_checkout.py`:** Verifies Razorpay order creation and signature verification.
-5. **`test_phase8_adversarial_security.py`:** Adversarial suite testing price tampering, replay attacks, and prompt injection attempts.
-
----
-
-## 19. Complete Step-by-Step Scenario Walkthrough
-
-**Scenario:** User executes *"Buy 2 braided 4K HDMI cables for office setup"* with $\text{₹3,000}$ budget.
-
-1. **Intake:** User clicks **Execute Autonomous Purchase**. Frontend sends POST `/api/agent/run`.
-2. **Intent Parsing:** `buyer_intent.py` extracts `category="cables"`, `qty=2`, `query="4K HDMI cable"`.
-3. **MCP Search:** `tool_search_catalog` returns `prod_hdmi_braided_01` at $\text{₹799}$ each ($\text{₹1,598}$ total).
-4. **Growth Engine:** Proposes compatible add-on `prod_usb_c_hub_01` ($\text{₹2,499}$).
-5. **Proposal:** Constructs `OrderProposal` for $2 \times \text{₹799} = \text{₹1,598}$.
-6. **Policy Engine:** Verifies $\text{₹1,598} \le \text{₹3,000}$ (Pre-Auth Limit). Status: `VALID`.
-7. **Payment:** `razorpay_service` creates Razorpay order `order_rcpt_...`.
-8. **Checkout:** Client completes Razorpay checkout modal. Server verifies HMAC-SHA256 signature.
-9. **Settlement:** Payment captured. Event recorded with SHA-256 hash.
-10. **UI Update:** Step marked as **`SUCCESS`** with verified receipt.
+| Endpoint | Method | Payload / Params | Response |
+| :--- | :---: | :--- | :--- |
+| `/api/agent/run` | `POST` | `{ goal, session_id, max_budget }` | SSE stream (`text/event-stream`) |
+| `/api/agent/approve-hitl` | `POST` | `{ session_id, proposal, verified_total, hitl_token }` | Order & settlement confirmation |
+| `/api/agent/reject-hitl` | `POST` | `{ session_id, reason }` | `{ status: "REJECTED" }` |
+| `/api/policy` | `GET` | None | `{ max_single_transaction_limit, auto_approve_limit, daily_spending_limit, spent_today }` |
+| `/api/policy` | `POST` | Updated policy config object | Updated policy config |
+| `/api/orders` | `GET` | None | `{ orders: [OrderRecord, ...] }` |
+| `/api/growth/interact` | `POST` | `{ session_id, offer_type, action, product_id, ... }` | Growth interaction result & recalculated total |
+| `/api/audit-logs` | `GET` | `?session_id=...` | `{ logs: [AuditLogEntry, ...] }` |
 
 ---
 
-## 20. Important File Cheat Sheet
+## 17. State Management
 
-| File Path | Core Responsibility | Key Class / Function | Why It Is Critical |
-| :--- | :--- | :--- | :--- |
-| `backend/main.py` | API Entry point & routing | `run_agent_stream()`, `verify_razorpay_payment()` | Serves SSE stream and payment verification endpoints. |
-| `backend/agent/buyer_agent.py` | Core autonomous agent loop | `BuyerAgent.run_goal_stream()` | Coordinates intent, MCP discovery, proposal, and settlement. |
-| `backend/agent/buyer_intent.py` | Intent parsing & fallback | `GeminiIntentParser.parse_intent()` | Converts natural language to structured `BuyerIntent`. |
-| `backend/security/policy_engine.py`| Deterministic security rules | `PolicyEngine.verify_order_proposal()` | Enforces spending limits, HITL tokens, and replay prevention. |
-| `backend/payments/razorpay_client.py`| Razorpay payment rails | `RazorpayService.create_order()`, `verify_payment()` | Handles order creation, signatures, and settlement. |
-| `backend/merchant/growth_engine.py`| Growth & recommendations | `GrowthEngine.interact_offer()` | Manages upsells, cross-sells, and conversion metrics. |
-| `backend/audit/ledger.py` | Immutable audit ledger | `AuditLedger.record()` | Computes sequential SHA-256 cryptographic hash chains. |
-| `frontend/src/App.tsx` | Single-Page React Application | `handleRunAgent()`, `handleStartNewPurchase()` | Manages UI state, SSE event streaming, and tab views. |
+Key state variables in `frontend/src/App.tsx`:
+* `promptGoal` (string): Natural language user shopping intent.
+* `maxBudget` (number): User-selected maximum spending budget.
+* `steps` (AgentStep[]): Real-time array of execution steps rendered in the live trace.
+* `pendingHitl` (object | null): Stores pending HITL proposal, verified total, and cryptographic token.
+* `isListening` (boolean): Indicates whether browser voice recognition is currently capturing audio.
+* `offerDecisions` (Record): Maps upsell/cross-sell item IDs to `accepted` or `declined` states.
+* `orders` (OrderRecord[]): Cached list of orders displayed in the Order History view.
 
 ---
 
-## 21. Important Data Structures
+## 18. Error & Failure Cases
 
-```python
-# 1. BuyerIntent (backend/agent/buyer_intent.py)
-class BuyerIntent(BaseModel):
-    query: str
-    category: Optional[str]
-    budget: Optional[float]
-    quantity: int = 1
-    required_features: List[str] = []
-
-# 2. OrderProposal (backend/merchant/models.py)
-class OrderProposal(BaseModel):
-    merchant_id: str
-    items: List[CartItem]
-    total_amount: float
-    user_goal: str
-
-# 3. VerificationResult (backend/security/policy_engine.py)
-class VerificationResult(BaseModel):
-    is_valid: bool
-    status: str            # "VALID", "HITL_REQUIRED", "REJECTED"
-    reason: str
-    verified_total: float
-    idempotency_key: str
-    hitl_token: Optional[str]
-
-# 4. AuditLog (backend/audit/models.py)
-class AuditLog(BaseModel):
-    id: str
-    session_id: str
-    timestamp: str
-    event_type: str
-    status: str
-    summary: str
-    details: Dict[str, Any]
-    cryptographic_hash: str
-```
+1. **Product Not Found:** Agent searches catalog; if no matching criteria exist within budget, gracefully yields `No Matching Products Found` and halts.
+2. **Per-Transaction Limit Exceeded:** Order amount $> ₹10,000 \rightarrow$ Policy Engine blocks with `REJECTED_OVER_BUDGET`.
+3. **Daily Spending Limit Exceeded:** Cumulative spending today $+ \text{order} > \text{daily limit} \rightarrow$ Policy Engine blocks with `REJECTED_OVER_DAILY_BUDGET`.
+4. **HITL Rejection:** User clicks Reject $\rightarrow$ Pipeline halts immediately, logged as `HITL_REJECTED`, zero capture.
+5. **Gateway Payment Failure:** Simulated or real Razorpay failure transitions order to `FAILED`/`CANCELLED` without false settlement.
+6. **Replayed Request:** Replaying duplicate payload inside time window is rejected by `PersistentIdempotencySet`.
 
 ---
 
-## 22. Security Design: AI vs. Deterministic Enforcement
+## 19. Demo Scenarios
 
-```
-┌────────────────────────────────────────────────────────┐
-│             NON-DETERMINISTIC AI LAYER                 │
-│  (LLM Prompt, Intent Parsing, Product Spec Matching)   │
-└──────────────────────────┬─────────────────────────────┘
-                           │ Suggests Action
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│             DETERMINISTIC BACKEND GATE                 │
-│  • Database Price Validation (Ignores AI price claims) │
-│  • Hard Coded Mathematical Spend Limits                │
-│  • Cryptographic HMAC-SHA256 HITL Sign-Off Tokens      │
-│  • SHA-256 Chained Hash Audit Ledger                   │
-│  • Idempotency Replay Protection                       │
-└──────────────────────────┬─────────────────────────────┘
-                           │ Executes Only Validated Orders
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│             RAZORPAY PAYMENT INFRASTRUCTURE            │
-└────────────────────────────────────────────────────────┘
-```
-
-**Principle:** The AI agent acts as a *shopper*, but the backend policy engine acts as the *treasurer*. An AI agent can never authorize its own spending ceiling.
+| Scenario | Goal & Input | Expected Flow |
+| :--- | :--- | :--- |
+| **A. Autonomous Purchase** | *"Buy 2 braided 4K HDMI cables"* (Budget: ₹3,000) | Intent $\rightarrow$ Discovery (2 cables @ ₹799 = ₹1,598) $\rightarrow$ Auto-Approved under ₹3,000 $\rightarrow$ Razorpay settled autonomously. |
+| **B. HITL Approval** | *"Purchase 1 Keychron K2 mechanical keyboard"* (Budget: ₹8,000) | Discovery (Keyboard @ ₹6,499) $\rightarrow$ Exceeds ₹3,000 $\rightarrow$ HITL gate $\rightarrow$ Click **"Approve & Settle"** $\rightarrow$ Settled. |
+| **C. HITL Rejection** | *"Purchase 1 Keychron K2 mechanical keyboard"* (Budget: ₹8,000) | Discovery $\rightarrow$ HITL gate $\rightarrow$ Click **"Reject Proposal"** $\rightarrow$ Pipeline halts immediately with red badge, zero payment. |
+| **D. Transaction Limit Block** | *"Order 2 Logitech MX Master 3S mice"* (Budget: ₹15,000) | Total ₹15,998 $\rightarrow$ Policy Engine detects $> ₹10,000$ limit $\rightarrow$ Blocked with `Policy Ceiling Blocked`. |
+| **E. Cross-Sell Add to Cart** | *"Buy 2 braided 4K HDMI cables"* $\rightarrow$ Cross-sell appears $\rightarrow$ Click **"Add to Cart"** | Add-on attached $\rightarrow$ Total recalculated from DB $\rightarrow$ Policy re-verified $\rightarrow$ Settled. |
+| **F. Voice Input** | Click Mic icon $\rightarrow$ Say *"Restock coffee beans"* | Spoken text populates textarea $\rightarrow$ Click **"Execute Autonomous Purchase"** $\rightarrow$ Runs smoothly. |
 
 ---
 
-## 23. Live Demonstration Scenarios
+## 20. Demo Walkthrough Script
 
-### Scenario 1: Autonomous Pre-Authorized Purchase
-* **Goal:** *"Buy 2 braided 4K HDMI cables for office setup"* (Budget: $\text{₹3,000}$).
-* **Demonstrates:** Zero-click autonomous approval under the $\text{₹3,000}$ threshold.
-* **Talking Point:** *"Notice how the total of ₹1,598 was automatically verified against the database and executed autonomously on Razorpay rails without interrupting the user."*
+### Step 1: Product View & Autonomous Purchase
+* **What to Click:** Click **Scenario 1 (4K HDMI Cables)**, then click **Execute Autonomous Purchase**.
+* **What Happens Technically:** Gemini parses intent, queries SQLite catalog, sees ₹1,598 total $\le$ ₹3,000 auto-approve ceiling, generates Razorpay order, settles payment, and records SHA-256 chained audit logs.
+* **What to Say:** *"Here you see the autonomous execution pipeline. Because the verified total of ₹1,598 is within our ₹3,000 pre-authorization limit, AgentCart securely executes the transaction without requiring human intervention."*
 
-### Scenario 2: High-Value Human-in-the-Loop (HITL) Gate
-* **Goal:** *"Purchase 1 Keychron K2 mechanical keyboard"* (Budget: $\text{₹8,000}$).
-* **Demonstrates:** The policy engine pauses execution and requests cryptographic sign-off.
-* **Talking Point:** *"Because ₹7,499 exceeds the ₹3,000 autonomous threshold, the system halts and issues a signed HITL token. Once I click 'Approve & Settle', it executes the payment."*
+### Step 2: Human-in-the-Loop Rejection & Approval
+* **What to Click:** Click **Scenario 2 (Keychron Keyboard)**, click **Execute**, then click **Reject Proposal**.
+* **What Happens Technically:** Item is ₹6,499 ($> ₹3,000$). The server generates an HMAC-SHA256 HITL token. Clicking Reject immediately stops the pipeline, logs `HITL_REJECTED`, and verifies zero financial capture.
+* **What to Say:** *"For high-value purchases between ₹3,000 and ₹10,000, AgentCart halts execution at the HITL cryptographic gate. If the operator rejects the proposal, execution stops instantly with zero financial capture."*
 
-### Scenario 3: Hard Spending Ceiling Block
-* **Goal:** *"Order 2 Logitech MX Master 3S mice"* (Budget: $\text{₹15,000}$).
-* **Demonstrates:** Hard security ceiling rejection ($> \text{₹10,000}$).
-* **Talking Point:** *"The order total of ₹15,998 exceeds our hard single-transaction limit of ₹10,000. The deterministic policy gate immediately aborts the order before any payment request is created."*
-
-### Scenario 4: Interactive Cross-Sell Add-to-Cart
-* **Action:** In Scenario 1, click **Add to Cart** on the USB-C Hub card ($+\text{₹2,499}$).
-* **Demonstrates:** Real-time proposal recalculation ($\text{₹1,598} + \text{₹2,499} = \text{₹4,097}$), which dynamically activates the HITL gate.
-* **Talking Point:** *"Adding the add-on updated our verified cart to ₹4,097. Because it crossed ₹3,000, it safely triggered our HITL gate."*
+### Step 3: Spending Policies & Order History
+* **What to Click:** Navigate to **Policy & Security**, show the 3 policy sliders and the live daily spending meter. Then navigate to **Order History** to inspect recorded transactions.
+* **What to Say:** *"All policy bounds—per-transaction, auto-approve ceiling, and daily cumulative limit—are enforced server-side. In the Order History tab, every transaction is tracked with its verified amount, Razorpay status, and cryptographic audit link."*
 
 ---
 
-## 24. Recommended 3–5 Minute Demo Script
+## 21. Key Interview Questions & Answers
 
-1. **0:00 - 0:45 (Problem):** Introduce the risk of AI agents holding payment cards without deterministic guardrails.
-2. **0:45 - 1:30 (Scenario 1 - Autonomous Pre-Auth):** Run the 4K HDMI Cables scenario. Show live streaming steps, price calculation, and Razorpay settlement.
-3. **1:30 - 2:30 (Scenario 2 - HITL Gate):** Run the Keychron Keyboard scenario. Explain the HMAC-SHA256 sign-off token. Click **Approve & Settle**.
-4. **2:30 - 3:15 (Scenario 3 - Hard Policy Block):** Run the Logitech Mice scenario. Show the immediate red policy rejection.
-5. **3:15 - 4:00 (Audit Ledger & Reset):** Navigate to the **Audit Ledger** tab to show the SHA-256 hash chain. Click **Start New Purchase** to demonstrate instant state reset.
+### Q1: Why can't we let the LLM handle payment limits directly?
+> **Answer:** LLMs are probabilistic and vulnerable to prompt injection, hallucinations, and format manipulation. In AgentCart, the LLM has **Zero Financial Authority**. The server-side Python `PolicyEngine` recalculates cart totals strictly from the authoritative SQLite database and enforces spending rules deterministically.
 
----
+### Q2: How does the cryptographic HITL token work?
+> **Answer:** When an order requires human approval, the backend issues a signed token: `HMAC-SHA256(secret, session_id : amount : digest : idempotency_key : exp)`. The token is cryptographically bound to the exact session, verified amount, and cart items, and is consumed upon first use to prevent replay attacks.
 
-## 25. Likely Judge & Interview Questions with Answers
+### Q3: How does the SHA-256 Audit Ledger guarantee tamper evidence?
+> **Answer:** Each log entry incorporates the hash of the preceding entry ($\text{Hash}_{n-1}$) into its own SHA-256 payload. If an attacker modifies or deletes any historical record in the SQLite database, the hash chain breaks, which is immediately flagged by `verify_chain_integrity()`.
 
-1. **Q: Why not let the LLM check the budget itself?**  
-   *A: LLMs can hallucinate or be bypassed via prompt injection. Deterministic Python validation guarantees 100% mathematical certainty.*
-2. **Q: What is the purpose of the SHA-256 audit ledger?**  
-   *A: It provides non-repudiable proof of every agent action and policy check. Modifying past records breaks the sequential hash chain.*
-3. **Q: How does the system handle Gemini outages?**  
-   *A: It catches API errors and seamlessly switches to the built-in regex heuristic parser without crashing the purchase flow.*
-4. **Q: How does HITL prevent replay attacks?**  
-   *A: HITL tokens are cryptographically signed with HMAC-SHA256, bound to the session and total amount, and burned immediately upon first use.*
-5. **Q: Is Razorpay integration real or simulated?**  
-   *A: Both. It features real Razorpay API order generation and Checkout SDK modal handling with server-side HMAC verification, plus a toggleable sandbox mock mode for zero-setup demonstrations.*
-6. **Q: What happens if an item goes out of stock during the search?**  
-   *A: The agent detects `stock == 0` and autonomously queries the category for an in-stock equivalent, logging an `ERROR_RECOVERED` event.*
-7. **Q: How does the Growth Engine calculate metrics?**  
-   *A: Directly from SQLite audit ledger events (`PAYMENT_CAPTURED`, `UPSELL_ACCEPTED`), ensuring metrics represent real ledger truth rather than in-memory counters.*
-8. **Q: Can the AI agent modify merchant prices?**  
-   *A: No. Unit prices are queried directly from the verified database during order construction.*
-9. **Q: What is UAP / AP2?**  
-   *A: Universal Agentic Payments / Agentic Payment Protocol concepts that formalize pre-authorized spending mandates, non-repudiable intent, and delegated checkout.*
-10. **Q: What does clicking "Start New Purchase" reset?**  
-    *A: It resets the goal input, steps trace, budget slider, and session variables while preserving persistent audit logs, catalog stock, and analytics.*
-
----
-
-## 26. Final Mental Model (12-Step Summary)
-
-```
-1. User provides natural language goal & budget.
-2. Agent parses goal into structured BuyerIntent.
-3. Agent queries MCP Catalog for matching products.
-4. Spec-matching algorithm ranks candidate items.
-5. Growth Engine checks for compatible upgrades/add-ons.
-6. Server constructs OrderProposal using database prices.
-7. PolicyEngine verifies spending limits & idempotency.
-8. Low-value orders (<= ₹3,000) are auto-approved.
-9. High-value orders (> ₹3,000) require cryptographic HITL sign-off.
-10. Razorpay creates order and verifies HMAC-SHA256 signature.
-11. Transaction is settled and receipt generated.
-12. Every event is hashed and chained in the SQLite Audit Ledger.
-```
+### Q4: What is the difference between Test Mode and Mock Mode in Razorpay?
+> **Answer:** When real API test keys (`rzp_test_...`) are provided, AgentCart interacts with Razorpay's live Test Mode API and opens the standard Razorpay Checkout modal. When mock mode is enabled (`RAZORPAY_MOCK_MODE=true`), the server simulates order creation and HMAC signatures locally, allowing offline development and automated CI testing.

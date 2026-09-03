@@ -2,6 +2,8 @@ import json
 import hashlib
 import uuid
 import asyncio
+import time
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Literal
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +45,10 @@ class ApproveHitlRequest(BaseModel):
     proposal: Dict[str, Any]
     verified_total: float
     hitl_token: str
+
+class RejectHitlRequest(BaseModel):
+    session_id: str
+    reason: Optional[str] = "User rejected approval proposal"
 
 
 class PriceSurgeRequest(BaseModel):
@@ -123,7 +129,9 @@ def reset_catalog():
 
 @app.get("/api/policy")
 def get_policy():
-    return policy_engine.config.model_dump()
+    cfg = policy_engine.config.model_dump()
+    cfg["spent_today"] = policy_engine.get_daily_spent()
+    return cfg
 
 @app.post("/api/policy")
 def update_policy(config: PolicyConfig):
@@ -131,7 +139,9 @@ def update_policy(config: PolicyConfig):
         policy_engine.update_config(config)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"status": "success", "config": policy_engine.config.model_dump()}
+    res = policy_engine.config.model_dump()
+    res["spent_today"] = policy_engine.get_daily_spent()
+    return {"status": "success", "config": res}
 
 # ----------------- Agent Streaming & Execution Endpoints ----------------- #
 
@@ -265,6 +275,19 @@ def approve_hitl(req: ApproveHitlRequest):
     }
 
 
+@app.post("/api/agent/reject-hitl")
+def reject_hitl(req: RejectHitlRequest):
+    """Called when a human user rejects a proposal at the HITL sign-off gate."""
+    audit_ledger.record(
+        session_id=req.session_id,
+        event_type="HITL_REJECTED",
+        status="REJECTED",
+        summary=f"Human user rejected transaction sign-off: {req.reason}",
+        details={"session_id": req.session_id, "reason": req.reason}
+    )
+    return {"status": "REJECTED", "message": "Transaction rejected by user"}
+
+
 @app.post("/api/payments/verify")
 def verify_razorpay_payment(req: PaymentVerificationRequest):
     """Verify the Checkout success payload server-side before completing an order."""
@@ -319,6 +342,91 @@ def get_order_lifecycle(order_id: str, session_id: str):
         return razorpay_service.order_status(session_id, order_id)
     except ValueError as exc:
         raise HTTPException(status_code=404 if str(exc) == "Order ID not recognized" else 403, detail=str(exc))
+
+
+@app.get("/api/orders")
+def get_all_orders():
+    """Retrieve summarized order and transaction history derived from the authoritative audit ledger and orders registry."""
+    orders_map: Dict[str, Dict[str, Any]] = {}
+    
+    # First, populate from razorpay_service orders
+    for order_id, rec in razorpay_service._orders.items():
+        sess_id = rec.get("session_id", "")
+        paise = rec.get("amount", 0)
+        state = rec.get("state", "created")
+        status_label = "Settled" if state == "paid" else ("Rejected" if state in ("failed", "cancelled") else ("Pending Approval" if state == "checkout" else "Created"))
+        orders_map[sess_id] = {
+            "order_id": order_id,
+            "session_id": sess_id,
+            "goal": (rec.get("provider_order") or {}).get("notes", {}).get("goal") or "Autonomous Purchase",
+            "amount": paise / 100.0,
+            "status": status_label,
+            "timestamp": datetime.fromtimestamp(rec.get("created_at", time.time()), tz=timezone.utc).isoformat(),
+            "payment_id": rec.get("payment_id"),
+        }
+
+    # Second, enrich/add from audit ledger entries (to capture rejected or non-order sessions as well)
+    all_logs = audit_ledger.get_all_logs(limit=500)
+    sessions: Dict[str, List[Any]] = {}
+    for log in all_logs:
+        sessions.setdefault(log.session_id, []).append(log)
+
+    for sess_id, logs in sessions.items():
+        if not sess_id or sess_id == "webhook_unmatched" or sess_id == "system":
+            continue
+        
+        goal = "Autonomous Purchase"
+        for l in logs:
+            if l.event_type == "AGENT_INTAKE" and l.details.get("goal"):
+                goal = l.details["goal"]
+                break
+
+        is_paid = any(l.event_type in ("PAYMENT_CAPTURED", "PAYMENT_VERIFIED") and l.status == "SUCCESS" for l in logs)
+        is_hitl_rejected = any(l.event_type == "HITL_REJECTED" for l in logs)
+        is_policy_rejected = any(l.event_type == "POLICY_CHECK" and l.status == "REJECTED" for l in logs)
+        is_hitl_pending = any(l.event_type == "HITL_REQUIRED" and l.status == "PENDING_APPROVAL" for l in logs) and not is_paid and not is_hitl_rejected
+
+        status = "Settled" if is_paid else ("Rejected" if (is_hitl_rejected or is_policy_rejected) else ("Pending Approval" if is_hitl_pending else "Completed"))
+        
+        amount = 0.0
+        payment_id = None
+        order_id = None
+        ts = logs[0].timestamp if logs else datetime.now(timezone.utc).isoformat()
+
+        for l in logs:
+            d = l.details or {}
+            if "verified_total" in d and isinstance(d["verified_total"], (int, float)):
+                amount = float(d["verified_total"])
+            elif "total" in d and isinstance(d["total"], (int, float)):
+                amount = float(d["total"])
+            elif "amount" in d and isinstance(d["amount"], (int, float)):
+                amount = float(d["amount"])
+            
+            if "order_id" in d and d["order_id"]:
+                order_id = d["order_id"]
+            if "payment_id" in d and d["payment_id"]:
+                payment_id = d["payment_id"]
+            if "razorpay_payment_id" in d and d["razorpay_payment_id"]:
+                payment_id = d["razorpay_payment_id"]
+
+        if sess_id not in orders_map:
+            orders_map[sess_id] = {
+                "order_id": order_id or f"ord_{sess_id[:10]}",
+                "session_id": sess_id,
+                "goal": goal,
+                "amount": amount,
+                "status": status,
+                "timestamp": ts,
+                "payment_id": payment_id
+            }
+        else:
+            orders_map[sess_id]["goal"] = goal
+            if is_hitl_rejected or is_policy_rejected:
+                orders_map[sess_id]["status"] = "Rejected"
+            if amount > 0 and orders_map[sess_id]["amount"] == 0:
+                orders_map[sess_id]["amount"] = amount
+
+    return {"orders": sorted(list(orders_map.values()), key=lambda x: x.get("timestamp", ""), reverse=True)}
 
 
 # ----------------- Audit Ledger Endpoints ----------------- #

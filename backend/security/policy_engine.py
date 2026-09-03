@@ -3,6 +3,8 @@ import sqlite3
 import hmac
 import hashlib
 import time
+import json
+from datetime import datetime, timezone
 from typing import Dict, Any, Tuple, Optional, List
 from pydantic import BaseModel, Field, field_validator
 from config import settings
@@ -13,8 +15,9 @@ from audit.ledger import audit_ledger
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "audit", "audit_ledger.db")
 
 class PolicyConfig(BaseModel):
-    max_single_transaction_limit: float = 10000.0  # Absolute max allowed (<= 10,000)
-    auto_approve_limit: float = 3000.0            # UAP / Autonomous pre-authorization limit (<= 3,000)
+    max_single_transaction_limit: float = 10000.0  # Per-transaction limit (<= 10,000)
+    auto_approve_limit: float = 3000.0            # Autonomous pre-authorization limit (<= 3,000)
+    daily_spending_limit: float = 25000.0         # Daily cumulative spending limit
     allowed_categories: List[str] = Field(default_factory=lambda: ["accessories", "cables", "peripherals", "pantry"])
     require_human_approval_always: bool = False
     enforce_stock_check: bool = True
@@ -36,6 +39,13 @@ class PolicyConfig(BaseModel):
             raise ValueError(f"max_single_transaction_limit cannot exceed immutable hard ceiling of ₹{settings.IMMUTABLE_MAX_TRANSACTION_LIMIT:,.2f}")
         if v < 0:
             raise ValueError("max_single_transaction_limit cannot be negative")
+        return v
+
+    @field_validator("daily_spending_limit")
+    @classmethod
+    def validate_daily_spending_limit(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("daily_spending_limit cannot be negative")
         return v
 
 class VerificationResult(BaseModel):
@@ -265,6 +275,48 @@ class PolicyEngine:
         legacy_expected_2 = hmac.new(b"rzp_hitl_secret_key", payload_legacy, hashlib.sha256).hexdigest()
         return hmac.compare_digest(token, legacy_expected_1) or hmac.compare_digest(token, legacy_expected_2)
 
+    def get_daily_spent(self, current_time: Optional[float] = None) -> float:
+        """
+        Calculates cumulative spending for settled transactions today.
+        """
+        now = datetime.fromtimestamp(current_time, tz=timezone.utc) if current_time is not None else datetime.now(timezone.utc)
+        today_prefix = now.strftime("%Y-%m-%d")
+        total_spent = 0.0
+        try:
+            conn = sqlite3.connect(self.processed_idempotency_keys.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT details FROM audit_logs 
+                WHERE (event_type = 'PAYMENT_CAPTURED' OR event_type = 'PAYMENT_VERIFIED') 
+                  AND status = 'SUCCESS' 
+                  AND timestamp LIKE ?
+            """, (f"{today_prefix}%",))
+            rows = cursor.fetchall()
+            conn.close()
+            for (details_raw,) in rows:
+                if not details_raw:
+                    continue
+                try:
+                    d = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                    amt = d.get("amount")
+                    if amt is None and "amount_paise" in d:
+                        amt = d["amount_paise"] / 100.0
+                    if amt:
+                        total_spent += float(amt)
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                for log in audit_ledger._memory_cache:
+                    if log.event_type in ("PAYMENT_CAPTURED", "PAYMENT_VERIFIED") and log.status == "SUCCESS" and log.timestamp.startswith(today_prefix):
+                        d = log.details or {}
+                        amt = d.get("amount") or (d.get("amount_paise", 0) / 100.0)
+                        if amt:
+                            total_spent += float(amt)
+            except Exception:
+                pass
+        return total_spent
+
     def consume_hitl_token(self, token: str, session_id: str = "", timestamp_override: Optional[float] = None):
         self.processed_idempotency_keys.consume_hitl_token(token, session_id, timestamp_override)
 
@@ -352,21 +404,40 @@ class PolicyEngine:
             # We enforce the verified DB price strictly
             proposal.total_amount = calculated_total
 
-        # 4. Check Absolute Spending Ceiling
+        # 4. Check Absolute Spending Ceiling (Per Transaction Limit)
         if calculated_total > self.config.max_single_transaction_limit:
             audit_ledger.record(
                 session_id=session_id,
                 event_type="POLICY_CHECK",
                 status="REJECTED",
-                summary=f"Order total (₹{calculated_total:,.2f}) exceeds hard spending ceiling of ₹{self.config.max_single_transaction_limit:,.2f}",
+                summary=f"Order total (₹{calculated_total:,.2f}) exceeds per-transaction limit of ₹{self.config.max_single_transaction_limit:,.2f}",
                 details={"total": calculated_total, "limit": self.config.max_single_transaction_limit}
             )
             return VerificationResult(
                 is_valid=False,
                 status="REJECTED_OVER_BUDGET",
-                reason=f"Order total of ₹{calculated_total:,.2f} exceeds policy maximum limit of ₹{self.config.max_single_transaction_limit:,.2f}.",
+                reason=f"Order total of ₹{calculated_total:,.2f} exceeds per-transaction policy limit of ₹{self.config.max_single_transaction_limit:,.2f}.",
                 verified_total=calculated_total,
                 idempotency_key=idempotency_key
+            )
+
+        # 4b. Check Daily Cumulative Spending Limit
+        daily_spent = self.get_daily_spent(timestamp_override)
+        if (daily_spent + calculated_total) > self.config.daily_spending_limit:
+            audit_ledger.record(
+                session_id=session_id,
+                event_type="POLICY_CHECK",
+                status="REJECTED",
+                summary=f"Daily spending limit breached. Spent today: ₹{daily_spent:,.2f} + Order ₹{calculated_total:,.2f} exceeds daily limit of ₹{self.config.daily_spending_limit:,.2f}",
+                details={"daily_spent": daily_spent, "order_total": calculated_total, "daily_limit": self.config.daily_spending_limit}
+            )
+            return VerificationResult(
+                is_valid=False,
+                status="REJECTED_OVER_DAILY_BUDGET",
+                reason=f"Daily spending limit of ₹{self.config.daily_spending_limit:,.2f} exceeded. (Spent today: ₹{daily_spent:,.2f}, Attempted order: ₹{calculated_total:,.2f}).",
+                verified_total=calculated_total,
+                idempotency_key=idempotency_key,
+                details={"daily_spent": daily_spent, "daily_limit": self.config.daily_spending_limit}
             )
 
         # 5. Check Autonomous Pre-Authorization vs Human-In-The-Loop Gate

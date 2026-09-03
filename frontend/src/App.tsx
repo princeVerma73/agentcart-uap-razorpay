@@ -5,7 +5,7 @@ import {
   Play, FileText, Check, X, Layers, Activity, Sparkles, ChevronRight,
   TrendingUp, BarChart3, Sliders, Shield, AlertCircle, ShoppingBag,
   ExternalLink, ChevronDown, Cpu, CheckCircle2, XCircle, Clock, Package,
-  ArrowLeft, RotateCcw, Plus
+  ArrowLeft, RotateCcw, Plus, Mic, MicOff, Search, Eye
 } from 'lucide-react';
 
 interface Product {
@@ -43,9 +43,21 @@ interface AuditLog {
 interface PolicyConfig {
   max_single_transaction_limit: number;
   auto_approve_limit: number;
+  daily_spending_limit?: number;
+  spent_today?: number;
   allowed_categories: string[];
   require_human_approval_always: boolean;
   enforce_stock_check: boolean;
+}
+
+interface OrderRecord {
+  order_id: string;
+  session_id: string;
+  goal: string;
+  amount: number;
+  status: 'Settled' | 'Rejected' | 'Pending Approval' | 'Blocked' | 'Created' | string;
+  timestamp: string;
+  payment_id?: string;
 }
 
 interface GrowthMetrics {
@@ -114,10 +126,11 @@ const loadRazorpayCheckout = () => new Promise<void>((resolve, reject) => {
   document.body.appendChild(script);
 });
 
-type TabType = 'product' | 'catalog' | 'analytics' | 'policy' | 'audit';
+type TabType = 'product' | 'catalog' | 'orders' | 'analytics' | 'policy' | 'audit';
 
 const NAV_ITEMS: { id: TabType; label: string; icon: any }[] = [
   { id: 'product', label: 'Product', icon: Package },
+  { id: 'orders', label: 'Order History', icon: Clock },
   { id: 'catalog', label: 'Catalog', icon: Database },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'policy', label: 'Policy & Security', icon: Shield },
@@ -148,12 +161,19 @@ export default function App() {
   const [steps, setSteps] = useState<AgentStep[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>("");
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [selectedOrderSession, setSelectedOrderSession] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
   const [metrics, setMetrics] = useState<GrowthMetrics | null>(null);
   const [merchantAnalytics, setMerchantAnalytics] = useState<MerchantAnalytics | null>(null);
   const [lastCheckout, setLastCheckout] = useState<{sessionId: string; orderId: string} | null>(null);
   const [policy, setPolicy] = useState<PolicyConfig>({
     max_single_transaction_limit: 10000,
     auto_approve_limit: 3000,
+    daily_spending_limit: 25000,
+    spent_today: 0,
     allowed_categories: ["accessories", "cables", "peripherals", "pantry"],
     require_human_approval_always: false,
     enforce_stock_check: true
@@ -179,15 +199,17 @@ export default function App() {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const goalInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fetch initial catalog, policy, audit logs, and metrics
+  // Fetch initial catalog, policy, audit logs, metrics, and orders
   useEffect(() => {
     fetchCatalog();
     fetchPolicy();
     fetchAuditLogs();
+    fetchOrders();
     fetchMetrics();
     fetchMerchantAnalytics();
     const interval = setInterval(() => {
       fetchAuditLogs();
+      fetchOrders();
       fetchMetrics();
       fetchMerchantAnalytics();
     }, 4000);
@@ -199,6 +221,11 @@ export default function App() {
   }, [steps]);
 
   const handleStartNewPurchase = () => {
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
     setPromptGoal("");
     setMaxBudget(3000);
     setSteps([]);
@@ -207,10 +234,88 @@ export default function App() {
     setLastCheckout(null);
     setOfferDecisions({});
     setIsRunning(false);
+    setIsListening(false);
+    setVoiceError(null);
+    setSelectedOrderSession(null);
     setActiveTab('product');
     setTimeout(() => {
       goalInputRef.current?.focus();
     }, 60);
+  };
+
+  const handleToggleVoice = () => {
+    setVoiceError(null);
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceError("Speech recognition is not supported in this browser. Please type your purchase goal.");
+      setTimeout(() => setVoiceError(null), 5000);
+      return;
+    }
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-IN';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript;
+        if (transcript) {
+          setPromptGoal(prev => (prev ? `${prev} ${transcript}` : transcript));
+        }
+        setIsListening(false);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === 'not-allowed') {
+          setVoiceError("Microphone access denied. Please allow microphone permissions or type your goal.");
+        } else if (event.error === 'no-speech') {
+          setVoiceError("No speech detected. Please speak clearly or type your goal.");
+        } else {
+          setVoiceError(`Voice recognition: ${event.error}. You can continue typing.`);
+        }
+        setIsListening(false);
+        setTimeout(() => setVoiceError(null), 5000);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      console.error("Speech recognition start failed", err);
+      setVoiceError("Could not start voice recognition. Please type your goal.");
+      setIsListening(false);
+      setTimeout(() => setVoiceError(null), 5000);
+    }
+  };
+
+  const fetchOrders = async () => {
+    try {
+      const res = await fetch('/api/orders');
+      const data = await res.json();
+      setOrders(data.orders || []);
+    } catch (e) {
+      console.error("Failed to fetch orders", e);
+    }
   };
 
   const fetchMetrics = async () => {
@@ -579,9 +684,48 @@ export default function App() {
       ]);
       setPendingHitl(null);
       fetchAuditLogs();
+      fetchOrders();
+      fetchMerchantAnalytics();
     } catch (e) {
       console.error("Failed to approve HITL", e);
     }
+  };
+
+  const handleRejectHitl = async () => {
+    if (!pendingHitl) return;
+    const currentSessionId = pendingHitl.sessionId;
+    const verifiedTotal = pendingHitl.verifiedTotal;
+    setPendingHitl(null);
+    setIsRunning(false);
+
+    try {
+      await fetch('/api/agent/reject-hitl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: currentSessionId,
+          reason: "User rejected proposal in HITL sign-off gate"
+        })
+      });
+    } catch (e) {
+      console.error("Failed to record HITL rejection", e);
+    }
+
+    setSteps(prev => [
+      ...prev,
+      {
+        step_number: prev.length + 1,
+        title: "Human Approval Rejected",
+        thought: `Transaction for ₹${verifiedTotal.toLocaleString('en-IN')} was explicitly rejected by human operator. Execution halted immediately with zero financial capture.`,
+        action: "hitl_rejected",
+        status: "REJECTED",
+        data: { rejected: true, verified_total: verifiedTotal }
+      }
+    ]);
+
+    fetchAuditLogs();
+    fetchOrders();
+    fetchMerchantAnalytics();
   };
 
   // Chaos Simulators
@@ -636,7 +780,9 @@ export default function App() {
   const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
   const isComplete = !isRunning && steps.length > 0;
   const isSuccess = steps.some(s => s.status === 'SUCCESS' || s.title?.toLowerCase().includes('settled') || s.title?.toLowerCase().includes('verified'));
-  const isBlocked = steps.some(s => s.status === 'REJECTED');
+  const isHitlRejected = steps.some(s => s.action === 'hitl_rejected' || s.title?.toLowerCase().includes('approval rejected'));
+  const isPolicyBlocked = steps.some(s => s.status === 'REJECTED' && s.action !== 'hitl_rejected');
+  const isBlocked = isHitlRejected || isPolicyBlocked;
   const isHitlPending = !!pendingHitl;
 
   return (
@@ -785,27 +931,77 @@ export default function App() {
                         <label className="block text-xs font-semibold text-slate-700">
                           Natural Language Goal
                         </label>
-                        {promptGoal && (
+                        <div className="flex items-center space-x-2">
                           <button
                             type="button"
-                            onClick={handleStartNewPurchase}
+                            onClick={handleToggleVoice}
                             disabled={isRunning}
-                            className="text-[11px] font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Clear goal and reset form"
+                            className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1 transition-all cursor-pointer ${
+                              isListening 
+                                ? 'bg-rose-500 text-white animate-pulse shadow-sm' 
+                                : 'bg-blue-50 text-[#0052cc] hover:bg-blue-100 border border-blue-200'
+                            }`}
+                            title={isListening ? "Stop listening" : "Click to speak your goal"}
                           >
-                            <RotateCcw className="h-3 w-3" />
-                            <span>Clear</span>
+                            {isListening ? (
+                              <>
+                                <MicOff className="h-3 w-3" />
+                                <span>Listening...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Mic className="h-3 w-3" />
+                                <span>Voice Input</span>
+                              </>
+                            )}
                           </button>
-                        )}
+
+                          {promptGoal && (
+                            <button
+                              type="button"
+                              onClick={handleStartNewPurchase}
+                              disabled={isRunning}
+                              className="text-[11px] font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Clear goal and reset form"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              <span>Clear</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <textarea
-                        ref={goalInputRef}
-                        value={promptGoal}
-                        onChange={(e) => setPromptGoal(e.target.value)}
-                        placeholder="e.g. Buy 2 braided 4K HDMI cables for office setup..."
-                        rows={2}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0c83fe]/20 focus:border-[#0c83fe] transition-all resize-none font-sans"
-                      />
+                      <div className="relative">
+                        <textarea
+                          ref={goalInputRef}
+                          value={promptGoal}
+                          onChange={(e) => setPromptGoal(e.target.value)}
+                          placeholder="e.g. Buy 2 braided 4K HDMI cables for office setup..."
+                          rows={2}
+                          className={`w-full bg-slate-50 border rounded-xl p-3 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0c83fe]/20 focus:border-[#0c83fe] transition-all resize-none font-sans ${
+                            isListening ? 'border-rose-400 ring-2 ring-rose-100 bg-rose-50/20' : 'border-slate-300'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleToggleVoice}
+                          disabled={isRunning}
+                          className={`absolute right-2.5 bottom-2.5 p-1.5 rounded-lg transition-all cursor-pointer ${
+                            isListening 
+                              ? 'bg-rose-500 text-white animate-pulse' 
+                              : 'text-slate-400 hover:text-[#0c83fe] hover:bg-slate-100'
+                          }`}
+                          title={isListening ? "Click to stop listening" : "Click to speak goal"}
+                        >
+                          {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        </button>
+                      </div>
+
+                      {voiceError && (
+                        <div className="mt-1.5 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-1.5 animate-reveal">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                          <span>{voiceError}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center bg-slate-50/80 border border-slate-200/80 rounded-xl p-3">
@@ -951,15 +1147,20 @@ export default function App() {
                             <AlertTriangle className="h-3.5 w-3.5" />
                             Human Approval Required
                           </span>
+                        ) : isHitlRejected ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-800 text-xs font-semibold border border-rose-200">
+                            <XCircle className="h-3.5 w-3.5" />
+                            Order Rejected (Approval Declined)
+                          </span>
+                        ) : isPolicyBlocked ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-800 text-xs font-semibold border border-rose-200">
+                            <XCircle className="h-3.5 w-3.5" />
+                            Policy Ceiling Blocked
+                          </span>
                         ) : isSuccess ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             Purchase Settled &amp; Verified
-                          </span>
-                        ) : isBlocked ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-800 text-xs font-semibold border border-rose-200">
-                            <XCircle className="h-3.5 w-3.5" />
-                            Policy Ceiling Blocked
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200">
@@ -1015,7 +1216,7 @@ export default function App() {
                         3. Policy Check
                       </div>
                       <div className={`p-1.5 rounded-lg border ${
-                        isHitlPending ? 'bg-amber-50 text-amber-800 border-amber-300 font-semibold' : steps.length >= 4 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold' : 'bg-slate-50 text-slate-400 border-slate-200'
+                        isHitlPending ? 'bg-amber-50 text-amber-800 border-amber-300 font-semibold' : isHitlRejected ? 'bg-rose-50 text-rose-800 border-rose-300 font-semibold' : steps.length >= 4 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold' : 'bg-slate-50 text-slate-400 border-slate-200'
                       }`}>
                         4. Approval
                       </div>
@@ -1066,10 +1267,11 @@ export default function App() {
                             <span>Approve &amp; Settle Razorpay</span>
                           </button>
                           <button
-                            onClick={() => setPendingHitl(null)}
-                            className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-xl border border-slate-300 transition-colors cursor-pointer"
+                            onClick={handleRejectHitl}
+                            className="px-4 py-2.5 bg-white hover:bg-rose-50 text-rose-700 text-xs font-semibold rounded-xl border border-rose-300 transition-colors cursor-pointer flex items-center gap-1"
                           >
-                            Reject
+                            <X className="h-3.5 w-3.5" />
+                            <span>Reject Proposal</span>
                           </button>
                         </div>
                       </div>
@@ -1461,6 +1663,106 @@ export default function App() {
           )}
 
           {/* ========================================================= */}
+          {/* 3. ORDER HISTORY VIEW: Simplified Order & Session Tracker  */}
+          {/* ========================================================= */}
+          {activeTab === 'orders' && (
+            <div className="space-y-6 animate-reveal">
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-7">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 mb-5 border-b border-slate-100 gap-3">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <Clock className="h-5 w-5 text-[#0052cc]" />
+                      <h2 className="text-lg font-bold text-slate-900">Order &amp; Transaction History</h2>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Authoritative ledger of autonomous buyer transactions, approvals, and settlements.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={fetchOrders}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>Refresh History</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Orders List / Table */}
+                {orders.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    No transaction records found yet. Execute an autonomous purchase from the Product view.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                          <th className="pb-3 pr-4">Order / Session ID</th>
+                          <th className="pb-3 px-4">Goal Intent</th>
+                          <th className="pb-3 px-4">Amount</th>
+                          <th className="pb-3 px-4">Status</th>
+                          <th className="pb-3 px-4">Payment ID</th>
+                          <th className="pb-3 px-4">Timestamp</th>
+                          <th className="pb-3 pl-4 text-right">Audit Trail</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {orders.map((ord, idx) => (
+                          <tr key={ord.order_id || ord.session_id || idx} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3.5 pr-4 font-mono font-medium text-slate-800">
+                              <div>{ord.order_id}</div>
+                              <div className="text-[10px] text-slate-400 font-sans">{ord.session_id}</div>
+                            </td>
+                            <td className="py-3.5 px-4 font-medium text-slate-800 max-w-[220px] truncate" title={ord.goal}>
+                              {ord.goal}
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-[#0c2340]">
+                              {ord.amount > 0 ? `₹${ord.amount.toLocaleString('en-IN')}` : '—'}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                ord.status === 'Settled' ? 'bg-emerald-100 text-emerald-800' :
+                                ord.status === 'Rejected' ? 'bg-rose-100 text-rose-800' :
+                                ord.status === 'Pending Approval' ? 'bg-amber-100 text-amber-800' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {ord.status === 'Settled' && <CheckCircle2 className="h-3 w-3 text-emerald-600" />}
+                                {ord.status === 'Rejected' && <XCircle className="h-3 w-3 text-rose-600" />}
+                                {ord.status === 'Pending Approval' && <AlertTriangle className="h-3 w-3 text-amber-600" />}
+                                <span>{ord.status}</span>
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500 truncate max-w-[120px]">
+                              {ord.payment_id || '—'}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-500 text-[11px] whitespace-nowrap">
+                              {ord.timestamp ? new Date(ord.timestamp).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            </td>
+                            <td className="py-3.5 pl-4 text-right">
+                              <button
+                                onClick={() => {
+                                  setSelectedOrderSession(ord.session_id);
+                                  setActiveTab('audit');
+                                }}
+                                className="px-2.5 py-1 rounded bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#0052cc] text-[11px] font-semibold border border-slate-200 transition-colors cursor-pointer flex items-center gap-1 ml-auto"
+                              >
+                                <Eye className="h-3 w-3" />
+                                <span>View Logs</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
           {/* 4. POLICY & SECURITY VIEW: Deterministic Guardrails       */}
           {/* ========================================================= */}
           {activeTab === 'policy' && (
@@ -1473,65 +1775,127 @@ export default function App() {
                       <h2 className="text-lg font-bold text-slate-900">Deterministic Policy &amp; Security Guardrails</h2>
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                      Pre-authorization bounds and cryptographic spend ceilings enforced before Razorpay order creation.
+                      Pre-authorization bounds, per-transaction caps, and daily spend ceilings enforced by backend policy engine.
                     </p>
                   </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1.5">
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
                     Security Gate Active
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  
-                  {/* Pre-Auth Slider */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold text-slate-800">Autonomous Pre-Auth Limit (UAP)</span>
-                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded">
-                        ₹{policy.auto_approve_limit.toLocaleString('en-IN')}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mb-4">
-                      Transactions under this amount execute autonomously without human prompt.
-                    </p>
-                    <div className="flex items-center space-x-3">
-                      <span className="text-xs text-slate-400">₹500</span>
-                      <input
-                        type="range"
-                        min={500}
-                        max={3000}
-                        step={500}
-                        value={policy.auto_approve_limit}
-                        onChange={(e) => updatePolicyConfig({ ...policy, auto_approve_limit: Number(e.target.value) })}
-                        className="w-full accent-emerald-600 cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
+                {/* Daily Spending Live Gauge Summary */}
+                <div className="mb-6 p-4 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-500 font-medium block">Daily Spending Status:</span>
+                    <span className="text-sm font-bold text-[#0c2340] mt-0.5 block">
+                      Spent Today: ₹{(policy.spent_today || 0).toLocaleString('en-IN')} / Daily Limit: ₹{(policy.daily_spending_limit || 25000).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-36 h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-emerald-600 rounded-full transition-all"
+                        style={{ 
+                          width: `${Math.min(100, Math.round(((policy.spent_today || 0) / (policy.daily_spending_limit || 25000)) * 100))}%` 
+                        }}
                       />
-                      <span className="text-xs text-slate-400">₹3,000</span>
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-700">
+                      {Math.min(100, Math.round(((policy.spent_today || 0) / (policy.daily_spending_limit || 25000)) * 100))}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  
+                  {/* Control 1: Auto-Approve Ceiling */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-slate-800">Auto-Approve Ceiling</span>
+                        <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded">
+                          ₹{policy.auto_approve_limit.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-4">
+                        Orders &le; this amount execute autonomously without human prompt.
+                      </p>
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-3">
+                        <span className="text-[11px] text-slate-400">₹500</span>
+                        <input
+                          type="range"
+                          min={500}
+                          max={3000}
+                          step={500}
+                          value={policy.auto_approve_limit}
+                          onChange={(e) => updatePolicyConfig({ ...policy, auto_approve_limit: Number(e.target.value) })}
+                          className="w-full accent-emerald-600 cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
+                        />
+                        <span className="text-[11px] text-slate-400">₹3,000</span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Hard Spending Ceiling */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold text-slate-800">Hard Spending Ceiling (Max Allowed)</span>
-                      <span className="text-xs font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded">
-                        ₹{policy.max_single_transaction_limit.toLocaleString('en-IN')}
-                      </span>
+                  {/* Control 2: Per-Transaction Limit */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-slate-800">Per-Transaction Limit</span>
+                        <span className="text-xs font-bold text-[#0c2340] bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded">
+                          ₹{policy.max_single_transaction_limit.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-4">
+                        Single orders exceeding this threshold are blocked immediately.
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-500 mb-4">
-                      Orders exceeding this threshold are blocked immediately by deterministic gate.
-                    </p>
-                    <div className="flex items-center space-x-3">
-                      <span className="text-xs text-slate-400">₹3,000</span>
-                      <input
-                        type="range"
-                        min={3000}
-                        max={10000}
-                        step={500}
-                        value={policy.max_single_transaction_limit}
-                        onChange={(e) => updatePolicyConfig({ ...policy, max_single_transaction_limit: Number(e.target.value) })}
-                        className="w-full accent-[#0c83fe] cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
-                      />
-                      <span className="text-xs text-slate-400">₹10,000</span>
+                    <div>
+                      <div className="flex items-center space-x-3">
+                        <span className="text-[11px] text-slate-400">₹1,000</span>
+                        <input
+                          type="range"
+                          min={1000}
+                          max={10000}
+                          step={500}
+                          value={policy.max_single_transaction_limit}
+                          onChange={(e) => updatePolicyConfig({ ...policy, max_single_transaction_limit: Number(e.target.value) })}
+                          className="w-full accent-[#0c83fe] cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
+                        />
+                        <span className="text-[11px] text-slate-400">₹10,000</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Control 3: Daily Spending Limit */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-slate-800">Daily Spending Limit</span>
+                        <span className="text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded">
+                          ₹{(policy.daily_spending_limit || 25000).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-4">
+                        Total daily cumulative spending cannot exceed this ceiling.
+                      </p>
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-3">
+                        <span className="text-[11px] text-slate-400">₹5k</span>
+                        <input
+                          type="range"
+                          min={5000}
+                          max={50000}
+                          step={1000}
+                          value={policy.daily_spending_limit || 25000}
+                          onChange={(e) => updatePolicyConfig({ ...policy, daily_spending_limit: Number(e.target.value) })}
+                          className="w-full accent-purple-600 cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
+                        />
+                        <span className="text-[11px] text-slate-400">₹50k</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1561,7 +1925,7 @@ export default function App() {
           {activeTab === 'audit' && (
             <div className="space-y-6 animate-reveal">
               <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-7">
-                <div className="flex items-center justify-between pb-5 mb-5 border-b border-slate-100">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 mb-5 border-b border-slate-100 gap-3">
                   <div>
                     <div className="flex items-center space-x-2">
                       <FileText className="h-5 w-5 text-[#0052cc]" />
@@ -1571,18 +1935,35 @@ export default function App() {
                       Immutable event trail chained with SHA-256 cryptographic verification hashes.
                     </p>
                   </div>
-                  <span className="text-xs font-mono px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                    SHA-256 Chained
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    {selectedOrderSession && (
+                      <button
+                        onClick={() => setSelectedOrderSession(null)}
+                        className="text-xs font-medium px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                      >
+                        Show All Sessions
+                      </button>
+                    )}
+                    <span className="text-xs font-mono px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                      SHA-256 Chained
+                    </span>
+                  </div>
                 </div>
 
+                {selectedOrderSession && (
+                  <div className="mb-4 p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center justify-between">
+                    <span>Filtering logs for session: <strong>{selectedOrderSession}</strong></span>
+                    <button onClick={() => setSelectedOrderSession(null)} className="text-blue-700 hover:underline font-semibold text-[11px]">Clear Filter</button>
+                  </div>
+                )}
+
                 <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
-                  {auditLogs.length === 0 ? (
+                  {(selectedOrderSession ? auditLogs.filter(l => l.session_id === selectedOrderSession) : auditLogs).length === 0 ? (
                     <div className="py-12 text-center text-slate-400 text-xs">
                       No cryptographic audit events recorded yet. Run a purchase scenario to inspect SHA-256 ledger.
                     </div>
                   ) : (
-                    auditLogs.map((log) => (
+                    (selectedOrderSession ? auditLogs.filter(l => l.session_id === selectedOrderSession) : auditLogs).map((log) => (
                       <div key={log.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1 hover:border-slate-300 transition-colors">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
