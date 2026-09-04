@@ -3,13 +3,13 @@ import json
 import re
 import uuid
 from typing import Dict, Any, List, Optional, AsyncGenerator
-from merchant.catalog import catalog_db
-from merchant.models import OrderProposal, CartItem, Product
-from security.policy_engine import policy_engine
-from payments.razorpay_client import razorpay_service
-from audit.ledger import audit_ledger
-from .tools import tool_search_catalog, tool_get_product_details, tool_check_policy_limits
-from .buyer_intent import BuyerIntent, gemini_intent_parser, GeminiIntentParser
+from backend.merchant.catalog import catalog_db
+from backend.merchant.models import OrderProposal, CartItem, Product
+from backend.security.policy_engine import policy_engine
+from backend.payments.razorpay_client import razorpay_service
+from backend.audit.ledger import audit_ledger
+from backend.agent.tools import tool_search_catalog, tool_get_product_details, tool_check_policy_limits
+from backend.agent.buyer_intent import BuyerIntent, gemini_intent_parser, GeminiIntentParser
 
 class AgentExecutionStep(dict):
     def __init__(self, step_number: int, title: str, thought: str, action: str, status: str, data: Optional[Dict[str, Any]] = None):
@@ -252,7 +252,7 @@ class BuyerAgent:
             ))
 
         # Discover Contextual Growth Opportunities (Upsell & Cross-Sell)
-        from merchant.growth_engine import growth_engine
+        from backend.merchant.growth_engine import growth_engine
         upsell_cand = growth_engine.get_upsell_candidate(primary_match, intent.budget, target_qty)
         if upsell_cand:
             upsell_cand.update({

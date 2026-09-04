@@ -10,14 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from config import settings
-from merchant.catalog import catalog_db
-from merchant.models import CatalogQuery, Product, OrderProposal
-from security.policy_engine import policy_engine, PolicyConfig
-from payments.razorpay_client import razorpay_service, verify_webhook_signature
-from audit.ledger import audit_ledger
-from agent.buyer_agent import buyer_agent
-from merchant.analytics import merchant_analytics
+from backend.config import settings
+from backend.merchant.catalog import catalog_db
+from backend.merchant.models import CatalogQuery, Product, OrderProposal
+from backend.security.policy_engine import policy_engine, PolicyConfig
+from backend.payments.razorpay_client import razorpay_service, verify_webhook_signature
+from backend.audit.ledger import audit_ledger
+from backend.agent.buyer_agent import buyer_agent
+from backend.merchant.analytics import merchant_analytics
+
+import sys
+sys.modules["main"] = sys.modules.get(__name__) or sys.modules.get("backend.main")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -448,7 +451,7 @@ def clear_audit_logs():
 
 # ----------------- Merchant Growth Engine Endpoints ----------------- #
 
-from merchant.growth_engine import growth_engine
+from backend.merchant.growth_engine import growth_engine
 
 class GrowthInteractRequest(BaseModel):
     session_id: str
@@ -498,4 +501,4 @@ def get_growth_recommendations(req: GrowthRecommendationRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

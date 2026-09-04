@@ -7,10 +7,10 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, Tuple, Optional, List
 from pydantic import BaseModel, Field, field_validator
-from config import settings
-from merchant.catalog import catalog_db
-from merchant.models import OrderProposal
-from audit.ledger import audit_ledger
+from backend.config import settings
+from backend.merchant.catalog import catalog_db
+from backend.merchant.models import OrderProposal
+from backend.audit.ledger import audit_ledger
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "audit", "audit_ledger.db")
 

@@ -5,7 +5,7 @@ import os
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
-from .models import AuditLogEntry
+from backend.audit.models import AuditLogEntry
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "audit_ledger.db")
 

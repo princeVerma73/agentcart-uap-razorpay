@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from .models import Product, CatalogQuery
+from backend.merchant.models import Product, CatalogQuery
 
 # Initial Realistic Tech/Office Hardware & Supplies Catalog
 DEFAULT_PRODUCTS = [

@@ -4,7 +4,7 @@ import httpx
 
 from typing import List, Optional, Tuple, Dict, Any
 from pydantic import BaseModel, Field
-from config import settings
+from backend.config import settings
 
 class BuyerIntent(BaseModel):
     query: str

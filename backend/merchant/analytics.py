@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from audit.ledger import audit_ledger
+from backend.audit.ledger import audit_ledger
 
 
 def merchant_analytics() -> Dict[str, Any]:

@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
-from merchant.catalog import catalog_db
-from merchant.models import CatalogQuery, Product, OrderProposal, CartItem
-from security.policy_engine import policy_engine
+from backend.merchant.catalog import catalog_db
+from backend.merchant.models import CatalogQuery, Product, OrderProposal, CartItem
+from backend.security.policy_engine import policy_engine
 
 def tool_search_catalog(query: str = "", category: str = "", max_price: Optional[float] = None) -> List[Dict[str, Any]]:
     """Query merchant inventory by keyword, category, or maximum price."""

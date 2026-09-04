@@ -3,11 +3,11 @@ import os
 import sqlite3
 from typing import Any, Dict, Optional
 
-from audit.ledger import audit_ledger
-from security.policy_engine import policy_engine
+from backend.audit.ledger import audit_ledger
+from backend.security.policy_engine import policy_engine
 
-from .catalog import catalog_db
-from .models import CartItem, OrderProposal, Product
+from backend.merchant.catalog import catalog_db
+from backend.merchant.models import CartItem, OrderProposal, Product
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "audit", "audit_ledger.db")
 

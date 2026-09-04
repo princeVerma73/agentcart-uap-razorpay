@@ -6,8 +6,8 @@ from typing import Any, Dict, Optional
 
 import razorpay
 
-from audit.ledger import audit_ledger
-from config import settings
+from backend.audit.ledger import audit_ledger
+from backend.config import settings
 
 
 def verify_webhook_signature(raw_body: bytes, signature: str, secret: str) -> bool:
